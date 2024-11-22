@@ -1,0 +1,5 @@
+---
+BasedOnStyle: LLVM
+AlignConsecutiveAssignments: Consecutive
+AlignConsecutiveDeclarations: Consecutive
+ColumnLimit: 120
