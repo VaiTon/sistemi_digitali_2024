@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cmath>
 #include <cstddef>
 #include <ostream>
 #include <vector>
@@ -17,7 +16,7 @@ struct kmeans_cluster_t {
   vector<vector<Point>> clusters;
 };
 
-kmeans_cluster_t kmeans(size_t k, const vector<Point> &points);
+kmeans_cluster_t kmeans_cpu(size_t k, const vector<Point> &points, size_t max_iter, float tol);
 
 inline bool operator==(const Point &lhs, const Point &rhs) { return lhs.x == rhs.x && lhs.y == rhs.y; }
 

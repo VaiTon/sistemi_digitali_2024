@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+if [ $# -eq 0 ]; then
+    echo "Usage: $0 <builddir> [params]"
+    exit 1
+fi
+
+
+builddir=$1
+shift
+
+var="cpu gpu usm"
+
+for i in $var; do
+    echo -e "\n== Running kmeans-$i"
+    time $builddir/kmeans-$i $@
+done
+
+
+
+
