@@ -5,7 +5,7 @@
 
 #include "kmeans.hpp"
 
-kmeans_cluster_t kmeans_cpu(const size_t k, const vector<Point> &points, const size_t max_iter, float tol) {
+kmeans_cluster_t kmeans_cpu_seq(const size_t k, const std::vector<Point> &points, const size_t max_iter, float tol) {
   if (k > points.size()) {
     throw std::invalid_argument("Number of clusters must be less than or equal "
                                 "to the number of points");
@@ -13,11 +13,12 @@ kmeans_cluster_t kmeans_cpu(const size_t k, const vector<Point> &points, const s
 
   tol *= tol; // we use squared distance for convergence check
 
-  auto centroids     = vector<Point>(k);              // Centroids
-  auto new_centroids = vector<Point>(k);              // Updated centroids after each iteration
-  auto assoc         = vector<size_t>(points.size()); // Association of each point to a cluster
-  auto converged     = bool{false};                   // Convergence flag
-  auto iter          = size_t{0};                     // Iteration counter
+  auto centroids     = std::vector<Point>(k);              // Centroids
+  auto new_centroids = std::vector<Point>(k);              // Updated centroids after each iteration
+  auto assoc_len_d   = std::vector<size_t>(k);             // Number of points in each cluster
+  auto assoc         = std::vector<size_t>(points.size()); // Association of each point to a cluster
+  auto converged     = bool{false};                        // Convergence flag
+  auto iter          = size_t{0};                          // Iteration counter
 
   // Initialization: choose k centroids (Forgy, Random Partition, etc.)
   // For simplicity, let's assume the first k points are the initial centroids
@@ -26,40 +27,44 @@ kmeans_cluster_t kmeans_cpu(const size_t k, const vector<Point> &points, const s
   while (!converged && iter < max_iter) {
 
     // Assign each point to the "closest" centroid
-    for (auto i = size_t{0}; i < points.size(); i++) {
+#ifdef USE_OPENMP
+#pragma omp parallel for default(none) shared(points, centroids, assoc, k) firstprivate(tol)
+#endif
+    for (auto p_idx = size_t{0}; p_idx < points.size(); p_idx++) {
       auto min_distance = std::numeric_limits<double>::max();
       auto min_idx      = size_t{0};
 
-      for (auto j = size_t{0}; j < k; j++) {
-        const auto distance = squared_distance(points[i], centroids[j]);
+      for (auto c_idx = size_t{0}; c_idx < k; c_idx++) {
+        const auto distance = squared_distance(points[p_idx], centroids[c_idx]);
         if (distance < min_distance) {
           min_distance = distance;
-          min_idx      = j;
+          min_idx      = c_idx;
         }
       }
 
-      assoc[i] = min_idx;
+      assoc[p_idx] = min_idx;
     }
 
-    // Calculate new centroids
-    for (auto centroid_idx = size_t{0}; centroid_idx < k; centroid_idx++) {
-      auto new_centroid = Point{0, 0};
+    // Step 2: Calculate new centroids
+    // - Initialize new centroids to (0, 0)
+    for (auto c_idx = size_t{0}; c_idx < k; c_idx++) {
+      new_centroids[c_idx] = Point{0, 0};
+      assoc_len_d[c_idx]   = 0;
+    }
 
-      auto count = size_t{0};
-      for (size_t point_idx = 0; point_idx < points.size(); point_idx++) {
-        if (assoc[point_idx] == centroid_idx) {
-          new_centroid.x += points[point_idx].x;
-          new_centroid.y += points[point_idx].y;
-          count++;
-        }
+    // - For each point, add the point's coordinates to the corresponding centroid
+    for (auto p_idx = size_t{0}; p_idx < points.size(); p_idx++) {
+      const auto centroid_idx = assoc[p_idx];
+      new_centroids[centroid_idx].x += points[p_idx].x;
+      new_centroids[centroid_idx].y += points[p_idx].y;
+      assoc_len_d[centroid_idx]++;
+    }
+    // - Divide the sum of coordinates by the number of points in the cluster
+    for (auto c_idx = size_t{0}; c_idx < k; c_idx++) {
+      if (assoc_len_d[c_idx] > 0) {
+        new_centroids[c_idx].x /= static_cast<float>(assoc_len_d[c_idx]);
+        new_centroids[c_idx].y /= static_cast<float>(assoc_len_d[c_idx]);
       }
-
-      if (count > 0) {
-        new_centroid.x /= static_cast<float>(count);
-        new_centroid.y /= static_cast<float>(count);
-      }
-
-      new_centroids[centroid_idx] = new_centroid;
     }
 
     converged = true;

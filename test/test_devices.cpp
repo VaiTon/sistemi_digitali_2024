@@ -8,31 +8,6 @@
 #include <vector>
 
 #include "../src/kmeans.hpp"
-#include "../src/kmeans_sycl.hpp"
-
-struct Point;
-std::vector<Point> get_data(const std::string &filename) {
-  auto data       = std::vector<Point>{};
-  auto input_file = std::ifstream{filename};
-
-  if (!input_file.is_open()) {
-    throw std::runtime_error("Failed to open file: " + filename);
-  }
-
-  std::string line;
-  while (std::getline(input_file, line)) {
-    std::istringstream ss{line};
-    std::string        token;
-    std::getline(ss, token, ',');
-    float x = std::stof(token);
-    std::getline(ss, token, ',');
-    float y = std::stof(token);
-
-    data.push_back(Point{x, y});
-  }
-
-  return data;
-}
 
 int main(const int argc, char **argv) {
   if (argc < 3) {
@@ -44,7 +19,7 @@ int main(const int argc, char **argv) {
   const auto k              = std::stoi(argv[2]);
 
   const auto device_type = argc == 4 ? std::string{argv[3]} : "";
-  if (device_type != "CPU" && device_type != "GPU") {
+  if (!device_type.empty() && device_type != "CPU" && device_type != "GPU") {
     std::cerr << "Invalid device type: " << device_type << std::endl;
     return EXIT_FAILURE;
   }
@@ -56,13 +31,15 @@ int main(const int argc, char **argv) {
   auto devices = sycl::device::get_devices();
   std::cerr << "--- Found " << devices.size() << " devices" << std::endl;
   for (const auto &device : devices) {
-    std::cerr << "  - " << device.get_info<sycl::info::device::name>() << std::endl;
+    auto dev_name   = device.get_info<sycl::info::device::name>();
+    auto dev_vendor = device.get_info<sycl::info::device::vendor>();
+    std::cerr << "  - " << dev_name << " (" << dev_vendor << ")" << std::endl;
   }
 
-  if (device_type == "CPU") {
+  if (device_type.empty() || device_type == "CPU") {
     std::cerr << "--- Running kmeans on CPU" << std::endl;
     const auto start_time = std::chrono::high_resolution_clock::now();
-    kmeans_cpu(k, data, 1000, 1e-4);
+    kmeans_cpu_seq(k, data, 1000, 1e-4);
     const auto end_time = std::chrono::high_resolution_clock::now();
 
     std::cerr << " Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count()
@@ -70,16 +47,18 @@ int main(const int argc, char **argv) {
   }
 
   // test every variant with every device
-  if (device_type == "GPU") {
+  if (device_type.empty() || device_type == "GPU") {
     for (auto &device : devices) {
-      auto device_name = device.get_info<sycl::info::device::name>();
+      auto device_name   = device.get_info<sycl::info::device::name>();
+      auto device_vendor = device.get_info<sycl::info::device::vendor>();
 
       const auto q = sycl::queue{device};
       {
-        std::cerr << "--- Running kmeans on SYCL (buffer) on device: " << device_name << std::endl;
+        std::cerr << "--- Running kmeans on SYCL (buffer) on device: " << device_name << " (" << device_vendor << ")"
+                  << std::endl;
 
         const auto start_time = std::chrono::high_resolution_clock::now();
-        kmeans_buf(q, k, data, 1000, 1e-4);
+        kmeans_sycl_buf(q, k, data, 1000, 1e-4);
         const auto end_time = std::chrono::high_resolution_clock::now();
 
         std::cerr << " Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count()
@@ -87,10 +66,11 @@ int main(const int argc, char **argv) {
       }
 
       {
-        std::cerr << "--- Running kmeans on SYCL (USM) on device: " << device_name << std::endl;
+        std::cerr << "--- Running kmeans on SYCL (USM) on device: " << device_name << " (" << device_vendor << ")"
+                  << std::endl;
 
         const auto start_time = std::chrono::high_resolution_clock::now();
-        kmeans_usm(q, k, data, 1000, 1e-4);
+        kmeans_sycl_usm(q, k, data, 1000, 1e-4);
         const auto end_time = std::chrono::high_resolution_clock::now();
 
         std::cerr << " Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count()

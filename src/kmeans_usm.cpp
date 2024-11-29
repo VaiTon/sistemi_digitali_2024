@@ -1,15 +1,20 @@
 #include <cstddef>
 #include <iostream>
 #include <stdexcept>
-#include <sycl/sycl.hpp>
 #include <vector>
 
+#include <sycl/sycl.hpp>
 #include "kmeans.hpp"
-#include "kmeans_sycl.hpp"
 
 using namespace sycl;
 
-kmeans_cluster_t kmeans_usm(queue q, const size_t k, const vector<Point> &points, const size_t max_iter, float tol) {
+class UsmAssignPointsKernel;
+class UsmNewCentroidsKernel;
+class UsmConvergedKernel;
+class UsmUpdateCentroidsKernel;
+
+kmeans_cluster_t kmeans_sycl_usm(queue q, const size_t k, const std::vector<Point> &points, const size_t max_iter,
+                                 float tol) {
   if (k > points.size()) {
     throw std::invalid_argument("Number of clusters (" + std::to_string(k) +
                                 ") must be less than the number of points (" + std::to_string(points.size()) + ")");
@@ -21,11 +26,12 @@ kmeans_cluster_t kmeans_usm(queue q, const size_t k, const vector<Point> &points
   const auto points_n = points.size();
 
   // device memory
-  const auto points_d        = malloc_device<Point>(points.size(), q);  // Points
-  const auto centroids_d     = malloc_device<Point>(k, q);              // Centroids
-  const auto new_centroids_d = malloc_device<Point>(k, q);              // Updated centroids after each iteration
-  const auto assoc_d         = malloc_device<size_t>(points.size(), q); // Association of each point to a cluster
-  const auto converged       = malloc_host<bool>(1, q);                 // Convergence flag
+  const auto points_d               = malloc_device<Point>(points.size(), q);  // Points
+  const auto centroids_d            = malloc_device<Point>(k, q);              // Centroids
+  const auto new_centroids_d        = malloc_device<Point>(k, q);              // Updated centroids after each iteration
+  // const auto new_centroids_points_d = malloc_device<size_t>(k, q);             // Number of points in each cluster
+  const auto assoc_d                = malloc_device<size_t>(points.size(), q); // Association of each point to a cluster
+  const auto converged              = malloc_host<bool>(1, q);                 // Convergence flag
 
   assert(points_d != nullptr);
   assert(centroids_d != nullptr);
@@ -48,7 +54,7 @@ kmeans_cluster_t kmeans_usm(queue q, const size_t k, const vector<Point> &points
     // Step 1: Assign points to clusters
     // for each point, calculate the distance to each centroid and assign the
     // point to the closest one
-    q.parallel_for(points_n, [=](const size_t point_idx) {
+    q.parallel_for<UsmAssignPointsKernel>(points_n, [=](const size_t point_idx) {
        auto min_val = std::numeric_limits<double>::max();
        auto min_idx = size_t{0};
 
@@ -64,7 +70,8 @@ kmeans_cluster_t kmeans_usm(queue q, const size_t k, const vector<Point> &points
      }).wait();
 
     // calculate new centroids by averaging the points in each cluster
-    q.parallel_for(k, [=](const size_t k_idx) {
+    // V1: Associate a thread with a cluster
+    q.parallel_for<UsmNewCentroidsKernel>(k, [=](const size_t k_idx) {
        auto x = 0.0;
        auto y = 0.0;
 
@@ -86,8 +93,44 @@ kmeans_cluster_t kmeans_usm(queue q, const size_t k, const vector<Point> &points
        }
      }).wait();
 
+    /*
+    // V2: Use atomic_ref to update the centroids and associate a thread with a point
+    // Slower than the previous version
+
+    q.parallel_for(k, [=](auto k_idx) {
+       new_centroids_d[k_idx]        = Point{0, 0};
+       new_centroids_points_d[k_idx] = 0;
+     }).wait();
+
+    q.parallel_for(points_n, [=](auto p_idx) {
+       auto centroid_x_ref =
+           atomic_ref<float, memory_order::relaxed, memory_scope::system>(new_centroids_d[assoc_d[p_idx]].x);
+       auto centroid_y_ref =
+           atomic_ref<float, memory_order::relaxed, memory_scope::system>(new_centroids_d[assoc_d[p_idx]].y);
+       const auto count_ref =
+           atomic_ref<size_t, memory_order::relaxed, memory_scope::system>(new_centroids_points_d[assoc_d[p_idx]]);
+
+       // ReSharper disable CppExpressionWithoutSideEffects
+       centroid_x_ref.fetch_add(points_d[p_idx].x);
+       centroid_y_ref.fetch_add(points_d[p_idx].y);
+       count_ref.fetch_add(size_t{1});
+       // ReSharper restore CppExpressionWithoutSideEffects
+     }).wait();
+
+    q.parallel_for(k, [=](auto k_idx) {
+       auto count = new_centroids_points_d[k_idx];
+       if (count > 0) {
+         auto centroid = new_centroids_d[k_idx];
+         centroid.x /= static_cast<float>(count);
+         centroid.y /= static_cast<float>(count);
+         new_centroids_d[k_idx] = centroid;
+       }
+     }).wait();
+
+     */
+
     // check for convergence
-    q.single_task([=] {
+    q.single_task<UsmConvergedKernel>([=] {
        *converged = true;
        for (size_t i = 0; i == 0 || (i < k && !*converged); i++) {
          *converged &= squared_distance(centroids_d[i], new_centroids_d[i]) <= tol;
@@ -95,10 +138,8 @@ kmeans_cluster_t kmeans_usm(queue q, const size_t k, const vector<Point> &points
      }).wait();
 
     // if not converged, update the centroids
-    if (!*converged) {
-      q.parallel_for(k, [=](auto item) { centroids_d[item] = new_centroids_d[item]; }).wait();
-    }
 
+    q.parallel_for<UsmUpdateCentroidsKernel>(k, [=](auto item) { centroids_d[item] = new_centroids_d[item]; }).wait();
     iter++;
   }
 

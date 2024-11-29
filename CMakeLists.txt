@@ -7,9 +7,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 project(kmeans CXX)
 
 option(USE_ONEAPI "Use Intel SYCL implementation" OFF)
+option(SD_SYCL_REDUCTION "Use SYCL reduction" OFF)
+option(CPU_OPENMP "Disable OpenMP in CPU implementation" OFF)
+
 set(ACPP_TARGETS "generic" CACHE STRING "AdaptiveCpp targets")
 
-option(SD_SYCL_REDUCTION "Use SYCL reduction" OFF)
 if (SD_SYCL_REDUCTION)
     add_definitions(-DSD_SYCL_REDUCTION)
 endif ()
@@ -33,23 +35,42 @@ endif ()
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic")
 
-add_executable(test-devices
+# OpenMP
+if (CPU_OPENMP)
+    if (USE_ONEAPI)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -qopenmp")
+    else ()
+        find_package(OpenMP REQUIRED)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+        add_compile_definitions(USE_OPENMP)
+    endif ()
+endif ()
+
+
+if (USE_SIMD)
+    add_definitions(-DUSE_SIMD)
+endif ()
+
+# Ninja colorize output
+if (CMAKE_GENERATOR STREQUAL "Ninja")
+    add_definitions(-fdiagnostics-color=always)
+endif ()
+
+
+set(SOURCES
         src/kmeans.hpp
-        src/kmeans_sycl.hpp
         src/kmeans_cpu.cpp
         src/kmeans_buf.cpp
         src/kmeans_usm.cpp
-        test/test_devices.cpp
 )
-add_sycl_to_target(TARGET test-devices)
 
 include_directories(src)
-add_executable(test-correctness
-        src/kmeans.hpp
-        src/kmeans_sycl.hpp
-        src/kmeans_cpu.cpp
-        src/kmeans_buf.cpp
-        src/kmeans_usm.cpp
-        test/test_correctness.cpp
-)
-add_sycl_to_target(TARGET test-correctness)
+
+add_executable(test-devices ${SOURCES} test/test_devices.cpp)
+add_sycl_to_target(TARGET test-devices src/kmeans_buf.cpp src/kmeans_usm.cpp)
+
+add_executable(test-correctness ${SOURCES} test/test_correctness.cpp)
+add_sycl_to_target(TARGET test-correctness src/kmeans_buf.cpp src/kmeans_usm.cpp)
+
+add_executable(test-results ${SOURCES} test/test_results.cpp)
+add_sycl_to_target(TARGET test-results src/kmeans_buf.cpp src/kmeans_usm.cpp)
