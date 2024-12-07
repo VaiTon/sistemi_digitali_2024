@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.26.5)
+cmake_minimum_required(VERSION 3.10)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -7,14 +7,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 project(kmeans CXX)
 
 option(USE_ONEAPI "Use Intel SYCL implementation" OFF)
-option(SD_SYCL_REDUCTION "Use SYCL reduction" OFF)
 option(CPU_OPENMP "Disable OpenMP in CPU implementation" OFF)
 
+set(SYCL_TYPE "USM" CACHE STRING "Use USM or Buffers")
 set(ACPP_TARGETS "generic" CACHE STRING "AdaptiveCpp targets")
-
-if (SD_SYCL_REDUCTION)
-    add_definitions(-DSD_SYCL_REDUCTION)
-endif ()
 
 if (USE_ONEAPI)
     find_package(IntelSYCL REQUIRED)
@@ -46,23 +42,21 @@ if (CPU_OPENMP)
     endif ()
 endif ()
 
-
-if (USE_SIMD)
-    add_definitions(-DUSE_SIMD)
-endif ()
-
 # Ninja colorize output
 if (CMAKE_GENERATOR STREQUAL "Ninja")
     add_definitions(-fdiagnostics-color=always)
 endif ()
 
 
-set(SOURCES
-        src/kmeans.hpp
-        src/kmeans_cpu.cpp
-        src/kmeans_buf.cpp
-        src/kmeans_usm.cpp
-)
+if (SYCL_TYPE STREQUAL "USM")
+    set(SOURCES src/kmeans.hpp src/kmeans_cpu.cpp src/kmeans_usm.cpp)
+elseif (SYCL_TYPE STREQUAL "BUF")
+    set(SOURCES src/kmeans.hpp src/kmeans_cpu.cpp src/kmeans_buf.cpp)
+else ()
+    message(FATAL_ERROR "No SYCL_TYPE: ${SYCL_TYPE}. Available: USM, BUF")
+endif ()
+
+add_compile_definitions(SYCL_TYPE="${SYCL_TYPE}")
 
 include_directories(src)
 

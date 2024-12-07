@@ -41,9 +41,8 @@ inline double squared_distance(const Point &lhs, const Point &rhs) {
   return dx * dx + dy * dy;
 }
 
-kmeans_cluster_t kmeans_cpu_seq(size_t k, const std::vector<Point> &points, size_t max_iter, float tol);
-kmeans_cluster_t kmeans_sycl_buf(sycl::queue q, size_t k, const std::vector<Point> &points, size_t max_iter, float tol);
-kmeans_cluster_t kmeans_sycl_usm(sycl::queue q, size_t k, const std::vector<Point> &points, size_t max_iter, float tol);
+kmeans_cluster_t kmeans_cpu(size_t k, const std::vector<Point> &points, size_t max_iter, float tol);
+kmeans_cluster_t kmeans_sycl(sycl::queue q, size_t k, const std::vector<Point> &points, size_t max_iter, float tol);
 
 inline std::vector<Point> get_data(const std::string &filename) {
   auto data       = std::vector<Point>{};

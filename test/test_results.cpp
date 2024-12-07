@@ -4,7 +4,7 @@
 
 int main(const int argc, char **argv) {
   if (argc < 4) {
-    std::cerr << "Usage: " << argv[0] << " <data.csv> <k> <cpu|usm|buf>" << std::endl;
+    std::cerr << "Usage: " << argv[0] << " <data.csv> <k> <cpu|sycl>";
     return EXIT_FAILURE;
   }
 
@@ -15,20 +15,18 @@ int main(const int argc, char **argv) {
   const auto data = get_data(input_filename);
   std::clog << "--- Data size: " << data.size() << std::endl;
 
-  const auto [centroids, clusters] = kmeans_cpu_seq(k, data, 1000, 1e-4);
+  const auto [centroids, clusters] = kmeans_cpu(k, data, 1000, 1e-4);
 
   const auto q = sycl::queue{};
   std::clog << "--- Running on: " << q.get_device().get_info<sycl::info::device::name>() << std::endl;
 
   kmeans_cluster_t res;
-  if (mode == "usm") {
-    res = kmeans_sycl_usm(q, k, data, 1000, 1e-4);
-  } else if (mode == "buf") {
-    res = kmeans_sycl_buf(q, k, data, 1000, 1e-4);
+  if (mode == "sycl") {
+    res = kmeans_sycl(q, k, data, 1000, 1e-4);
   } else if (mode == "cpu") {
-    res = kmeans_cpu_seq(k, data, 1000, 1e-4);
+    res = kmeans_cpu(k, data, 1000, 1e-4);
   } else {
-    std::clog << "Invalid mode: " << mode << ". Please use one of: cpu, usm, buf" << std::endl;
+    std::clog << "Invalid mode: " << mode << ". Please use one of: cpu, sycl" << std::endl;
   }
 
   std::cout << "[";

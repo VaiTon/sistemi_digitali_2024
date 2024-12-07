@@ -5,7 +5,7 @@
 
 #include "kmeans.hpp"
 
-kmeans_cluster_t kmeans_cpu_seq(const size_t k, const std::vector<Point> &points, const size_t max_iter, float tol) {
+kmeans_cluster_t kmeans_cpu(const size_t k, const std::vector<Point> &points, const size_t max_iter, float tol) {
   if (k > points.size()) {
     throw std::invalid_argument("Number of clusters must be less than or equal "
                                 "to the number of points");

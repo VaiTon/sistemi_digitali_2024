@@ -39,44 +39,29 @@ int main(const int argc, char **argv) {
   if (device_type.empty() || device_type == "CPU") {
     std::cerr << "--- Running kmeans on CPU" << std::endl;
     const auto start_time = std::chrono::high_resolution_clock::now();
-    kmeans_cpu_seq(k, data, 1000, 1e-4);
+    kmeans_cpu(k, data, 1000, 1e-4);
     const auto end_time = std::chrono::high_resolution_clock::now();
 
     std::cerr << " Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count()
               << "ms" << std::endl;
   }
 
-  // test every variant with every device
-  if (device_type.empty() || device_type == "GPU") {
-    for (auto &device : devices) {
-      auto device_name   = device.get_info<sycl::info::device::name>();
-      auto device_vendor = device.get_info<sycl::info::device::vendor>();
+  // with every device
+  for (auto &device : devices) {
+    auto device_name   = device.get_info<sycl::info::device::name>();
+    auto device_vendor = device.get_info<sycl::info::device::vendor>();
 
-      const auto q = sycl::queue{device};
-      {
-        std::cerr << "--- Running kmeans on SYCL (buffer) on device: " << device_name << " (" << device_vendor << ")"
-                  << std::endl;
+    const auto q = sycl::queue{device};
 
-        const auto start_time = std::chrono::high_resolution_clock::now();
-        kmeans_sycl_buf(q, k, data, 1000, 1e-4);
-        const auto end_time = std::chrono::high_resolution_clock::now();
+    std::cerr << "--- Running kmeans on SYCL (" << SYCL_TYPE << ") on device: " << device_name << " (" << device_vendor
+              << ")" << std::endl;
 
-        std::cerr << " Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count()
-                  << "ms" << std::endl;
-      }
+    const auto start_time = std::chrono::high_resolution_clock::now();
+    kmeans_sycl(q, k, data, 1000, 1e-4);
+    const auto end_time = std::chrono::high_resolution_clock::now();
 
-      {
-        std::cerr << "--- Running kmeans on SYCL (USM) on device: " << device_name << " (" << device_vendor << ")"
-                  << std::endl;
-
-        const auto start_time = std::chrono::high_resolution_clock::now();
-        kmeans_sycl_usm(q, k, data, 1000, 1e-4);
-        const auto end_time = std::chrono::high_resolution_clock::now();
-
-        std::cerr << " Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count()
-                  << "ms" << std::endl;
-      }
-    }
+    std::cerr << " Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count()
+              << "ms" << std::endl;
   }
 
   return EXIT_SUCCESS;

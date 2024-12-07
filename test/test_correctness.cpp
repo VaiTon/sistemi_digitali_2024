@@ -13,29 +13,21 @@ int main(const int argc, char **argv) {
   const auto data = get_data(input_filename);
   std::clog << "--- Data size: " << data.size() << std::endl;
 
-  const auto [centroids, clusters] = kmeans_cpu_seq(k, data, 1000, 1e-4);
+  const auto [centroids, clusters] = kmeans_cpu(k, data, 1000, 1e-4);
 
-  const auto q                             = sycl::queue{};
-  const auto [centroids_buf, clusters_buf] = kmeans_sycl_buf(q, k, data, 1000, 1e-4);
-  const auto [centroids_usm, clusters_usm] = kmeans_sycl_usm(q, k, data, 1000, 1e-4);
+  const auto q                               = sycl::queue{};
+  const auto [centroids_sycl, clusters_sycl] = kmeans_sycl(q, k, data, 1000, 1e-4);
 
   // compare results
   // calculate distance between centroids
   double max_distance = 0.0;
 
   for (int i = 0; i < k; ++i) {
-    const auto distance = squared_distance(centroids[i], centroids_buf[i]);
+    const auto distance = squared_distance(centroids[i], centroids_sycl[i]);
     max_distance        = std::max(max_distance, distance);
   }
 
-  std::clog << "--- Max distance between centroids (buffer): " << max_distance << std::endl;
-
-  for (int i = 0; i < k; ++i) {
-    const auto distance = squared_distance(centroids[i], centroids_usm[i]);
-    max_distance        = std::max(max_distance, distance);
-  }
-
-  std::clog << "--- Max distance between centroids (USM): " << max_distance << std::endl;
+  std::clog << "--- Max distance between centroids (" << SYCL_TYPE << "): " << max_distance << std::endl;
 
   std::cout << "[";
   for (size_t i = 0; i < k; ++i) {
