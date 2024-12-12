@@ -1,11 +1,11 @@
+#include "kmeans_cpu.hpp"
+
 #include <algorithm>
 #include <limits>
 #include <stdexcept>
 #include <vector>
 
-#include "kmeans.hpp"
-
-kmeans_cluster_t kmeans_cpu(const size_t k, const std::vector<Point> &points, const size_t max_iter, float tol) {
+kmeans_cluster_t kmeans_cpu::cluster(const size_t max_iter, double tol) {
   if (k > points.size()) {
     throw std::invalid_argument("Number of clusters must be less than or equal "
                                 "to the number of points");
@@ -13,24 +13,20 @@ kmeans_cluster_t kmeans_cpu(const size_t k, const std::vector<Point> &points, co
 
   tol *= tol; // we use squared distance for convergence check
 
-  auto centroids     = std::vector<Point>(k);              // Centroids
-  auto new_centroids = std::vector<Point>(k);              // Updated centroids after each iteration
+  auto centroids     = std::vector<point_t>(k);            // Centroids
+  auto new_centroids = std::vector<point_t>(k);            // Updated centroids after each iteration
   auto assoc_len_d   = std::vector<size_t>(k);             // Number of points in each cluster
   auto assoc         = std::vector<size_t>(points.size()); // Association of each point to a cluster
   auto converged     = bool{false};                        // Convergence flag
-  auto iter          = size_t{0};                          // Iteration counter
 
   // Initialization: choose k centroids (Forgy, Random Partition, etc.)
   // For simplicity, let's assume the first k points are the initial centroids
   std::copy_n(points.begin(), k, centroids.begin());
 
-  while (!converged && iter < max_iter) {
+  for (iter = 0; iter < max_iter && !converged; iter++) {
 
     // Assign each point to the "closest" centroid
-#ifdef USE_OPENMP
-#pragma omp parallel for default(none) shared(points, centroids, assoc, k) firstprivate(tol)
-#endif
-    for (auto p_idx = size_t{0}; p_idx < points.size(); p_idx++) {
+    for (size_t p_idx = 0; p_idx < points.size(); p_idx++) {
       auto min_distance = std::numeric_limits<double>::max();
       auto min_idx      = size_t{0};
 
@@ -48,7 +44,7 @@ kmeans_cluster_t kmeans_cpu(const size_t k, const std::vector<Point> &points, co
     // Step 2: Calculate new centroids
     // - Initialize new centroids to (0, 0)
     for (auto c_idx = size_t{0}; c_idx < k; c_idx++) {
-      new_centroids[c_idx] = Point{0, 0};
+      new_centroids[c_idx] = point_t{0, 0};
       assoc_len_d[c_idx]   = 0;
     }
 
@@ -67,18 +63,24 @@ kmeans_cluster_t kmeans_cpu(const size_t k, const std::vector<Point> &points, co
       }
     }
 
+    printf("Centroid 0: (%f, %f) -> (%f, %f)\n", centroids[0].x, centroids[0].y, new_centroids[0].x,
+           new_centroids[0].y);
+
     converged = true;
-    for (size_t i = 0; i == 0 || (i < k && !converged); ++i) {
-      converged = squared_distance(new_centroids[i], centroids[i]) < tol;
+    for (size_t i = 0; i < k; ++i) {
+      converged &= squared_distance(new_centroids[i], centroids[i]) < tol;
+
+      if (!converged) {
+        break; // no need to check further
+      }
     }
 
-    centroids = new_centroids;
-    iter++;
+    std::ranges::copy(new_centroids, centroids.begin());
   }
 
-  auto clusters = std::vector<std::vector<Point>>{centroids.size()};
+  auto clusters = std::vector<std::vector<point_t>>{centroids.size()};
   for (size_t i = 0; i < k; i++) {
-    clusters[i] = std::vector<Point>{};
+    clusters[i] = std::vector<point_t>{};
   }
 
   for (size_t i = 0; i < points.size(); i++) {

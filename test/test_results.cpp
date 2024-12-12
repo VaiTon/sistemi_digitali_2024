@@ -1,47 +1,80 @@
 #include "kmeans.hpp"
+#include "kmeans_buf.hpp"
+#include "kmeans_cpu.hpp"
+#include "kmeans_simd.hpp"
+#include "kmeans_usm.hpp"
+#include "util.hpp"
+
 #include <iostream>
-#include <string_view>
 
-int main(const int argc, char **argv) {
-  if (argc < 4) {
-    std::cerr << "Usage: " << argv[0] << " <data.csv> <k> <cpu|sycl>";
-    return EXIT_FAILURE;
-  }
+void save_results(const std::string &path, const kmeans_cluster_t &res) {
+  // open file
+  std::ofstream file{path};
 
-  const auto k              = std::stoi(argv[2]);
-  const auto input_filename = std::string{argv[1]};
-  const auto mode           = std::string{argv[3]};
-
-  const auto data = get_data(input_filename);
-  std::clog << "--- Data size: " << data.size() << std::endl;
-
-  const auto [centroids, clusters] = kmeans_cpu(k, data, 1000, 1e-4);
-
-  const auto q = sycl::queue{};
-  std::clog << "--- Running on: " << q.get_device().get_info<sycl::info::device::name>() << std::endl;
-
-  kmeans_cluster_t res;
-  if (mode == "sycl") {
-    res = kmeans_sycl(q, k, data, 1000, 1e-4);
-  } else if (mode == "cpu") {
-    res = kmeans_cpu(k, data, 1000, 1e-4);
-  } else {
-    std::clog << "Invalid mode: " << mode << ". Please use one of: cpu, sycl" << std::endl;
-  }
-
-  std::cout << "[";
-  for (int i = 0; i < k; ++i) {
-    std::cout << "{\"c\": [" << centroids[i].x << ", " << centroids[i].y << "], \"a\": [";
-    for (size_t j = 0; j < clusters[i].size(); ++j) {
-      std::cout << "[" << clusters[i][j].x << ", " << clusters[i][j].y << "]";
-      if (j != clusters[i].size() - 1) {
-        std::cout << ", ";
+  file << "[";
+  for (size_t i = 0; i < res.centroids.size(); ++i) {
+    file << "{\"c\": [" << res.centroids[i].x << ", " << res.centroids[i].y << "], \"a\": [";
+    for (size_t j = 0; j < res.clusters[i].size(); ++j) {
+      file << "[" << res.clusters[i][j].x << ", " << res.clusters[i][j].y << "]";
+      if (j != res.clusters[i].size() - 1) {
+        file << ", ";
       }
     }
 
-    std::cout << (i == k - 1 ? "]}" : "]}, ") << std::endl;
+    file << (i == res.clusters.size() - 1 ? "]}" : "]}, ") << std::endl;
   }
-  std::cout << "]" << std::endl;
+  file << "]" << std::endl;
+}
+
+int main(const int argc, char **argv) {
+  if (argc < 4) {
+    std::cerr << "Usage: " << argv[0] << " <data.csv> <k> <output_dir>";
+    return EXIT_FAILURE;
+  }
+
+  const auto input_filename = std::string{argv[1]};
+  const auto k              = static_cast<size_t>(std::stoi(argv[2]));
+  const auto output_dir     = std::string{argv[3]};
+
+  logger::info() << "Input file: " << input_filename << "\n";
+  logger::info() << "Loading data\n";
+  const auto data = get_data(input_filename);
+  logger::info() << "Data size: " << data.size() << "\n";
+
+  constexpr size_t max_iter = 1000;
+  constexpr double tol      = 1e-4;
+  {
+    logger::info() << "Running kmeans on CPU\n";
+    auto       kmeans = kmeans_cpu{k, data};
+    const auto res    = kmeans.cluster(max_iter, tol);
+    logger::info() << "Saving results to " << output_dir << "/cpu.json\n";
+    save_results(output_dir + "/cpu.json", res);
+  }
+
+  {
+    logger::info() << "Running kmeans on SIMD\n";
+    auto       kmeans = kmeans_simd{k, data};
+    const auto res    = kmeans.cluster(max_iter, tol);
+    logger::info() << "Saving results to " << output_dir << "/simd.json\n";
+    save_results(output_dir + "/simd.json", res);
+  }
+
+  const auto q = sycl::queue{};
+  logger::info() << "Running on: " << q.get_device().get_info<sycl::info::device::name>() << "\n";
+
+  {
+    auto       kmeans = kmeans_usm{q, k, data};
+    const auto res    = kmeans.cluster(max_iter, tol);
+    logger::info() << "Saving results to " << output_dir << "/usm.json\n";
+    save_results(output_dir + "/usm.json", res);
+  }
+
+  {
+    auto       kmeans = kmeans_buf{q, k, data};
+    const auto res    = kmeans.cluster(max_iter, tol);
+    logger::info() << "Saving results to " << output_dir << "/buf.json\n";
+    save_results(output_dir + "/buf.json", res);
+  }
 
   return EXIT_SUCCESS;
 }

@@ -1,5 +1,33 @@
 #include "kmeans.hpp"
+#include "kmeans_cpu.hpp"
+#include "kmeans_simd.hpp"
+#include "kmeans_usm.hpp"
+#include "util.hpp"
+
 #include <iostream>
+
+template <typename T>
+auto do_work_sycl(T km, const std::vector<point_t> centroids, const int max_iter, const double tol,
+                  const int k) -> decltype(km.cluster(max_iter, tol), void()) {
+  const auto [centroids_sycl, clusters_sycl] = km.cluster(max_iter, tol);
+
+  // compare results
+  // calculate distance between centroids
+  double max_distance = 0.0;
+  double tot_distance = 0.0;
+
+  for (int i = 0; i < k; ++i) {
+    const auto distance = squared_distance(centroids[i], centroids_sycl[i]);
+    max_distance        = std::max(max_distance, distance);
+    tot_distance += distance;
+  }
+
+  logger::info() << "Max distance between centroids: " << max_distance << std::endl;
+  logger::info() << "Cumulative distance between centroids: " << tot_distance << std::endl;
+
+  return;
+}
+
 
 int main(const int argc, char **argv) {
   if (argc < 3) {
@@ -7,41 +35,28 @@ int main(const int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
+  constexpr int  max_iter = 1000;
+  constexpr auto tol      = 1e-4;
+
   const auto k              = std::stoi(argv[2]);
   const auto input_filename = std::string{argv[1]};
 
   const auto data = get_data(input_filename);
-  std::clog << "--- Data size: " << data.size() << std::endl;
+  logger::info() << "Data size: " << data.size() << std::endl;
 
-  const auto [centroids, clusters] = kmeans_cpu(k, data, 1000, 1e-4);
+  auto k_cpu = kmeans_cpu{static_cast<size_t>(k), data};
 
-  const auto q                               = sycl::queue{};
-  const auto [centroids_sycl, clusters_sycl] = kmeans_sycl(q, k, data, 1000, 1e-4);
+  const auto [centroids, clusters] = k_cpu.cluster(max_iter, tol);
 
-  // compare results
-  // calculate distance between centroids
-  double max_distance = 0.0;
+  logger::info() << "Running kmeans on SIMD\n";
+  const auto k_simd = kmeans_simd{static_cast<size_t>(k), data};
+  do_work_sycl(k_simd, centroids, max_iter, tol, k);
 
-  for (int i = 0; i < k; ++i) {
-    const auto distance = squared_distance(centroids[i], centroids_sycl[i]);
-    max_distance        = std::max(max_distance, distance);
-  }
+  const auto q = sycl::queue{};
 
-  std::clog << "--- Max distance between centroids (" << SYCL_TYPE << "): " << max_distance << std::endl;
-
-  std::cout << "[";
-  for (size_t i = 0; i < k; ++i) {
-    std::cout << "{\"c\": [" << centroids[i].x << ", " << centroids[i].y << "], \"a\": [";
-    for (size_t j = 0; j < clusters[i].size(); ++j) {
-      std::cout << "[" << clusters[i][j].x << ", " << clusters[i][j].y << "]";
-      if (j != clusters[i].size() - 1) {
-        std::cout << ", ";
-      }
-    }
-
-    std::cout << (i == k - 1 ? "]}" : "]}, ") << std::endl;
-  }
-  std::cout << "]" << std::endl;
+  logger::info() << "Running kmeans on USM\n";
+  const auto k_usm = kmeans_usm{q, static_cast<size_t>(k), data};
+  do_work_sycl(k_usm, centroids, max_iter, tol, k);
 
   return EXIT_SUCCESS;
 }
