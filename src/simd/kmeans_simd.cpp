@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <emmintrin.h>
 #include <smmintrin.h>
+#include <limits>
 
 template <typename T, size_t Alignment> T *aligned_malloc(const size_t size) {
   void *ptr = _mm_malloc(size * sizeof(T), Alignment);

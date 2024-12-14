@@ -78,10 +78,10 @@ int main(const int argc, char **argv) {
       time_and_print(device_name, kmeans, max_iter, tol);
     }
 
-    {
-      auto kmeans = kmeans_buf{q, k, data};
-      time_and_print(device_name, kmeans, max_iter, tol);
-    }
+    // {
+    //   auto kmeans = kmeans_buf{q, k, data};
+    //   time_and_print(device_name, kmeans, max_iter, tol);
+    // }
 
     auto inorder_q = sycl::queue{device, sycl::property::queue::in_order{}};
 
@@ -90,10 +90,10 @@ int main(const int argc, char **argv) {
       time_and_print(device_name + " (in-order)", kmeans, max_iter, tol);
     }
 
-    {
-      auto kmeans = kmeans_buf{inorder_q, k, data};
-      time_and_print(device_name + " (in-order)", kmeans, max_iter, tol);
-    }
+    // {
+    //   auto kmeans = kmeans_buf{inorder_q, k, data};
+    //   time_and_print(device_name + " (in-order)", kmeans, max_iter, tol);
+    // }
   }
 
   return EXIT_SUCCESS;
