@@ -1,5 +1,7 @@
 #include "kmeans_simd.hpp"
 
+#include <cstdint>
+#include <emmintrin.h>
 #include <smmintrin.h>
 
 template <typename T, size_t Alignment> T *aligned_malloc(const size_t size) {
@@ -33,7 +35,7 @@ inline void deinterleave_sse(const point_t *points, __m128 &x, __m128 &y) {
 /// \param sum_x output sum of x coordinates
 /// \param sum_y output sum of y coordinates
 /// \param count output count of points in the cluster
-void accumulate_points_sse(const int c_idx, const float *points_x, const float *points_y,
+void accumulate_points_sse(const uint32_t c_idx, const float *points_x, const float *points_y,
                            const size_t points_n, const int *assoc, __m128 &sum_x, __m128 &sum_y,
                            __m128i &count) {
 
@@ -150,7 +152,7 @@ kmeans_cluster_t kmeans_simd::cluster(const size_t max_iter, double tol) {
       __m128i min_idx  = _mm_set1_epi32(-1);
 
       // Iterate over all centroids
-      for (size_t c_idx = 0; c_idx < k; c_idx++) {
+      for (uint32_t c_idx = 0; c_idx < k; c_idx++) {
         const __m128 cx = _mm_set1_ps(centroids_x[c_idx]);
         const __m128 cy = _mm_set1_ps(centroids_y[c_idx]);
 
@@ -165,7 +167,7 @@ kmeans_cluster_t kmeans_simd::cluster(const size_t max_iter, double tol) {
     }
 
     // Step 2: Calculate new centroids
-    for (size_t c_idx = 0; c_idx < k; c_idx++) {
+    for (uint32_t c_idx = 0; c_idx < k; c_idx++) {
       __m128  sum_x = _mm_setzero_ps();
       __m128  sum_y = _mm_setzero_ps();
       __m128i count = _mm_setzero_si128();

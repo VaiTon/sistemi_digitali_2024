@@ -1,10 +1,17 @@
 #ifndef UTIL_HPP
 #define UTIL_HPP
 
-#include <kmeans.hpp>
+#include <fstream>
+#include <iosfwd>
+#include <iostream>
+#include <istream>
 #include <vector>
 #include <iosfwd>
-#include <fstream>
+#include <iostream>
+#include <ostream>
+#include <sstream>
+
+#include "kmeans.hpp"
 
 inline std::vector<point_t> get_data(const std::string &filename) {
   auto data       = std::vector<point_t>{};

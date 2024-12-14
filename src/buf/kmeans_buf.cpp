@@ -7,7 +7,7 @@
 
 using namespace sycl;
 
-kmeans_cluster_t kmeans_buf::cluster(size_t max_iter, double tol) {
+kmeans_cluster_t kmeans_buf::cluster(const size_t max_iter, double tol) {
   if (k > points.size()) {
     throw std::invalid_argument("Number of clusters must be less than or equal "
                                 "to the number of points");
@@ -156,8 +156,8 @@ kmeans_cluster_t kmeans_buf::cluster(size_t max_iter, double tol) {
       });
     });
 
+    // Check for convergence
     converged_buf.get_host_access()[0] = true;
-
     q.submit([&](handler &h) {
       const auto new_centroids = new_centroids_buf.get_access<access_mode::read>(h);
       const auto centroids     = centroids_buf.get_access<access_mode::read>(h);

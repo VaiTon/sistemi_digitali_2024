@@ -101,12 +101,6 @@ struct final_reduction_kernel {
     final_x /= static_cast<double>(final_count);
     final_y /= static_cast<double>(final_count);
 
-    if (k_idx == 0) {
-      // Debug print
-      printf("Centroid %zu: (%f, %f) -> (%f, %f)\n", k_idx, centroids[k_idx].x, centroids[k_idx].y,
-             final_x, final_y);
-    }
-
     // Cast again to float
     new_centroids[k_idx] = point_t{
         .x = static_cast<float>(final_x),
@@ -124,12 +118,17 @@ struct check_convergence_kernel {
   point_t *new_centroids;
 
   void operator()() const {
+
     // tolerance must be squared
     const auto tol = this->tol * this->tol;
 
-    auto conv = true;
-    for (size_t i = 0; i == 0 || (i < k && !conv); i++) {
-      conv &= squared_distance(centroids[i], new_centroids[i]) <= tol;
+    bool conv = true;
+    for (size_t i = 0; i == 0 || i < k; i++) {
+      conv &= squared_distance(centroids[i], new_centroids[i]) < tol;
+
+      if (!conv) {
+        break;
+      }
     }
 
     *converged = conv;
@@ -192,7 +191,7 @@ kmeans_cluster_t kmeans_usm::cluster(const size_t max_iter, const double tol) {
   // main cycle: assign points to clusters, calculate new centroids, check for
   // convergence
 
-  for (iter = 0; iter < max_iter && !*converged; iter++) {
+  for (iter = 0; iter < max_iter; iter++) {
     // Step 1: Assign points to clusters
     // For each point, calculate the distance to each centroid and assign the point to the closest
     // one
@@ -233,6 +232,10 @@ kmeans_cluster_t kmeans_usm::cluster(const size_t max_iter, const double tol) {
     }
 
     q.copy(new_centroids_d, centroids_d, k).wait();
+
+    if (*converged) {
+      break;
+    }
   }
 
   auto centroids_h    = std::vector<point_t>(k);

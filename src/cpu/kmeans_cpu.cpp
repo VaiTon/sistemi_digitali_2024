@@ -11,7 +11,7 @@ kmeans_cluster_t kmeans_cpu::cluster(const size_t max_iter, double tol) {
                                 "to the number of points");
   }
 
-  tol *= tol; // we use squared distance for convergence check
+  tol = tol * tol; // we use squared distance for convergence check
 
   auto centroids     = std::vector<point_t>(k);            // Centroids
   auto new_centroids = std::vector<point_t>(k);            // Updated centroids after each iteration
@@ -23,7 +23,7 @@ kmeans_cluster_t kmeans_cpu::cluster(const size_t max_iter, double tol) {
   // For simplicity, let's assume the first k points are the initial centroids
   std::copy_n(points.begin(), k, centroids.begin());
 
-  for (iter = 0; iter < max_iter && !converged; iter++) {
+  for (iter = 0; iter < max_iter; iter++) {
 
     // Assign each point to the "closest" centroid
     for (size_t p_idx = 0; p_idx < points.size(); p_idx++) {
@@ -63,9 +63,7 @@ kmeans_cluster_t kmeans_cpu::cluster(const size_t max_iter, double tol) {
       }
     }
 
-    printf("Centroid 0: (%f, %f) -> (%f, %f)\n", centroids[0].x, centroids[0].y, new_centroids[0].x,
-           new_centroids[0].y);
-
+    // Check for convergence
     converged = true;
     for (size_t i = 0; i < k; ++i) {
       converged &= squared_distance(new_centroids[i], centroids[i]) < tol;
@@ -75,7 +73,12 @@ kmeans_cluster_t kmeans_cpu::cluster(const size_t max_iter, double tol) {
       }
     }
 
+    // Update centroids
     std::ranges::copy(new_centroids, centroids.begin());
+
+    if (converged) {
+      break;
+    }
   }
 
   auto clusters = std::vector<std::vector<point_t>>{centroids.size()};

@@ -1,15 +1,19 @@
+#include "util.hpp"
+
 #include <cstdlib>
+#include <iosfwd>
 #include <iostream>
+#include <istream>
 #include <ostream>
 #include <string>
-#include <sycl/sycl.hpp>
 #include <vector>
+
+#include <sycl/sycl.hpp>
 
 #include "buf/kmeans_buf.hpp"
 #include "cpu/kmeans_cpu.hpp"
 #include "simd/kmeans_simd.hpp"
 #include "usm/kmeans_usm.hpp"
-#include "util.hpp"
 
 template <typename T>
 auto time_and_print(const std::string &name, T &km, size_t max_iter, double tol)
@@ -77,6 +81,18 @@ int main(const int argc, char **argv) {
     {
       auto kmeans = kmeans_buf{q, k, data};
       time_and_print(device_name, kmeans, max_iter, tol);
+    }
+
+    auto inorder_q = sycl::queue{device, sycl::property::queue::in_order{}};
+
+    {
+      auto kmeans = kmeans_usm{inorder_q, k, data};
+      time_and_print(device_name + " (in-order)", kmeans, max_iter, tol);
+    }
+
+    {
+      auto kmeans = kmeans_buf{inorder_q, k, data};
+      time_and_print(device_name + " (in-order)", kmeans, max_iter, tol);
     }
   }
 

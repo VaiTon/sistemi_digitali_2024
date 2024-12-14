@@ -1,13 +1,17 @@
-#include "kmeans.hpp"
-#include "kmeans_cpu.hpp"
-#include "kmeans_simd.hpp"
-#include "kmeans_usm.hpp"
 #include "util.hpp"
 
+#include <iosfwd>
 #include <iostream>
+#include <istream>
+
+#include "kmeans.hpp"
+
+#include "cpu/kmeans_cpu.hpp"
+#include "simd/kmeans_simd.hpp"
+#include "usm/kmeans_usm.hpp"
 
 template <typename T>
-auto do_work_sycl(T km, const std::vector<point_t> centroids, const int max_iter, const double tol,
+auto do_work_sycl(T km, const std::vector<point_t> &centroids, const int max_iter, const double tol,
                   const int k) -> decltype(km.cluster(max_iter, tol), void()) {
   const auto [centroids_sycl, clusters_sycl] = km.cluster(max_iter, tol);
 
@@ -27,7 +31,6 @@ auto do_work_sycl(T km, const std::vector<point_t> centroids, const int max_iter
 
   return;
 }
-
 
 int main(const int argc, char **argv) {
   if (argc < 3) {

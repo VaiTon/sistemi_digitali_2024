@@ -1,11 +1,17 @@
-#include "kmeans.hpp"
-#include "kmeans_buf.hpp"
-#include "kmeans_cpu.hpp"
-#include "kmeans_simd.hpp"
-#include "kmeans_usm.hpp"
 #include "util.hpp"
 
+#include <iosfwd>
 #include <iostream>
+#include <istream>
+#include <ostream>
+#include <sstream>
+
+#include "kmeans.hpp"
+
+#include "buf/kmeans_buf.hpp"
+#include "cpu/kmeans_cpu.hpp"
+#include "simd/kmeans_simd.hpp"
+#include "usm/kmeans_usm.hpp"
 
 void save_results(const std::string &path, const kmeans_cluster_t &res) {
   // open file
