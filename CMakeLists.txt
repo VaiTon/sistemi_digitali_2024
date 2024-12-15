@@ -83,14 +83,15 @@ target_link_libraries(test-results PRIVATE kmeans-cpu kmeans-usm kmeans-buf kmea
 add_sycl_to_target(TARGET test-results src/buf/kmeans_buf.cpp src/usm/kmeans_usm.cpp)
 
 
-set(TEST_DATA_FILE "${CMAKE_CACHEFILE_DIR}/data.txt")
+set(TEST_DATA_FILE "${CMAKE_BINARY_DIR}/data.txt")
 add_custom_command(OUTPUT ${TEST_DATA_FILE}
         COMMAND sh -c 'python3 ${CMAKE_SOURCE_DIR}/scripts/rand_data.py ${KMEANS_TEST_NUM_POINTS} > ${TEST_DATA_FILE}'
 )
 add_custom_target(generate_data DEPENDS ${TEST_DATA_FILE})
 
 add_custom_target(runtest_results
-        COMMAND ${CMAKE_BINARY_DIR}/test-results ${TEST_DATA_FILE} ${KMEANS_TEST_NUM_CLUSTERS} ${CMAKE_CACHEFILE_DIR}/output
+        COMMAND mkdir -p ${CMAKE_BINARY_DIR}/results
+        COMMAND ${CMAKE_BINARY_DIR}/test-results ${TEST_DATA_FILE} ${KMEANS_TEST_NUM_CLUSTERS} ${CMAKE_BINARY_DIR}/results
         DEPENDS generate_data test-results
         USES_TERMINAL
 )

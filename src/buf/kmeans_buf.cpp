@@ -68,7 +68,8 @@ kmeans_cluster_t kmeans_buf::cluster(const size_t max_iter, double tol) {
     });
 
     q.submit([&](handler &h) {
-      h.fill<double>(partial_sums_x_d.get_access<access_mode::write>(h), 0.0);
+      auto acc = partial_sums_x_d.get_access<access_mode::write>(h);
+      h.fill<double>(acc, 0.0);
     });
     q.submit([&](handler &h) {
       h.fill<double>(partial_sums_y_d.get_access<access_mode::write>(h), 0.0);
@@ -101,20 +102,18 @@ kmeans_cluster_t kmeans_buf::cluster(const size_t max_iter, double tol) {
         const auto wg_idx = item.get_group(0); // Workgroup index
         const auto k_idx  = assoc[p_idx];      // Cluster index
 
-        // Use atomic operations to update partial results
-        const auto x_atomic =
-            atomic_ref<double, memory_order::relaxed, memory_scope::device,
-                       access::address_space::global_space>(partial_sums_x[wg_idx * k + k_idx]);
-        const auto y_atomic =
-            atomic_ref<double, memory_order::relaxed, memory_scope::device,
-                       access::address_space::global_space>(partial_sums_y[wg_idx * k + k_idx]);
-        const auto count_atomic =
-            atomic_ref<size_t, memory_order::relaxed, memory_scope::device,
-                       access::address_space::global_space>(partial_counts[wg_idx * k + k_idx]);
+        constexpr auto order = memory_order::relaxed;
+        constexpr auto scope = memory_scope::device;
+        constexpr auto as    = access::address_space::global_space;
 
-        x_atomic += static_cast<double>(points[p_idx].x);
-        y_atomic += static_cast<double>(points[p_idx].y);
-        count_atomic += size_t{1};
+        // Use atomic operations to update partial results
+        auto atom_x     = atomic_ref<double, order, scope, as>{partial_sums_x[wg_idx * k + k_idx]};
+        auto atom_y     = atomic_ref<double, order, scope, as>{partial_sums_y[wg_idx * k + k_idx]};
+        auto atom_count = atomic_ref<size_t, order, scope, as>{partial_counts[wg_idx * k + k_idx]};
+
+        atom_x += static_cast<double>(points[p_idx].x);
+        atom_y += static_cast<double>(points[p_idx].y);
+        atom_count += size_t{1};
       });
     });
 
@@ -128,9 +127,9 @@ kmeans_cluster_t kmeans_buf::cluster(const size_t max_iter, double tol) {
       const auto new_centroids = new_centroids_buf.get_access<access_mode::write>();
 
       h.parallel_for<class kmeans_final_reduction>(range(k), [=](const id<> k_idx) {
-        auto final_x     = double{0.0};
-        auto final_y     = double{0.0};
-        auto final_count = size_t{0};
+        double final_x     = 0.0;
+        double final_y     = 0.0;
+        size_t final_count = 0;
 
         // Accumulate results from all workgroups
         for (auto wg = size_t{0}; wg < num_work_groups; ++wg) {
@@ -185,21 +184,21 @@ kmeans_cluster_t kmeans_buf::cluster(const size_t max_iter, double tol) {
     }
   }
 
-  const auto centroids    = centroids_buf.get_host_access();
-  const auto associations = assoc_buf.get_host_access();
+  const auto centroids_acc    = centroids_buf.get_host_access();
+  const auto associations_acc = assoc_buf.get_host_access();
 
-  auto final_clusters = std::vector<std::vector<point_t>>{centroids.size()};
+  auto final_clusters = std::vector<std::vector<point_t>>{centroids_acc.size()};
   for (size_t i = 0; i < k; i++) {
     final_clusters[i] = std::vector<point_t>{};
   }
 
   for (size_t i = 0; i < points.size(); i++) {
-    auto cluster_idx = associations[i];
+    auto cluster_idx = associations_acc[i];
     final_clusters[cluster_idx].push_back(points[i]);
   }
 
   // copy from accessors to host memory
-  auto final_centroids = std::vector<point_t>{centroids.begin(), centroids.end()};
+  auto final_centroids = std::vector<point_t>{centroids_acc.begin(), centroids_acc.end()};
 
   return kmeans_cluster_t{
       .centroids = final_centroids,
