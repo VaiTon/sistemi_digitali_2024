@@ -4,6 +4,7 @@ project(kmeans CXX)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(USE_ONEAPI "Use Intel SYCL implementation" OFF)
 option(KMEANS_OMP "Use OpenMP for KMeans" ON)
@@ -51,22 +52,18 @@ add_library(kmeans INTERFACE src/kmeans.hpp)
 
 add_library(kmeans-cpu src/cpu/kmeans_cpu.hpp src/cpu/kmeans_cpu.cpp)
 target_link_libraries(kmeans-cpu PUBLIC kmeans)
-set_property(TARGET kmeans-cpu PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 add_library(kmeans-usm src/usm/kmeans_usm.hpp src/usm/kmeans_usm.cpp)
 add_sycl_to_target(TARGET kmeans-usm src/usm/kmeans_usm.cpp)
 target_link_libraries(kmeans-usm PUBLIC kmeans)
-set_property(TARGET kmeans-cpu PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 add_library(kmeans-buf src/buf/kmeans_buf.hpp src/buf/kmeans_buf.cpp)
 add_sycl_to_target(TARGET kmeans-buf src/buf/kmeans_buf.cpp)
 target_link_libraries(kmeans-buf PUBLIC kmeans)
-set_property(TARGET kmeans-cpu PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 add_library(kmeans-simd src/simd/kmeans_simd.hpp src/simd/kmeans_simd.cpp)
 add_sycl_to_target(TARGET kmeans-simd src/simd/kmeans_simd.cpp)
 target_link_libraries(kmeans-simd PUBLIC kmeans)
-set_property(TARGET kmeans-cpu PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 ## Tests
 
