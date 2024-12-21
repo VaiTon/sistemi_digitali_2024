@@ -7,17 +7,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(USE_ONEAPI "Use Intel SYCL implementation" OFF)
-option(KMEANS_OMP "Use OpenMP for KMeans" ON)
-set(ACPP_TARGETS "generic" CACHE STRING "AdaptiveCpp targets")
 
 set(KMEANS_TEST_NUM_POINTS 1000000 CACHE STRING "Number of points to use in tests")
 set(KMEANS_TEST_NUM_CLUSTERS 128 CACHE STRING "Number of clusters to use in tests")
 
-if (KMEANS_OMP)
-    find_package(OpenMP REQUIRED)
-    add_compile_definitions(KMEANS_OMP)
-    link_libraries(${OpenMP_CXX_LIBRARIES})
-endif ()
 
 if (USE_ONEAPI)
     find_package(IntelSYCL REQUIRED)
@@ -43,15 +36,20 @@ if (CMAKE_GENERATOR STREQUAL "Ninja")
     add_definitions(-fdiagnostics-color=always)
 endif ()
 
-add_compile_options(-msse4.1)
 add_compile_definitions(SYCL_TYPE="${SYCL_TYPE}")
 
 include_directories(src)
 
 add_library(kmeans INTERFACE src/kmeans.hpp)
 
-add_library(kmeans-cpu src/cpu/kmeans_cpu.hpp src/cpu/kmeans_cpu.cpp)
+find_package(OpenMP REQUIRED)
+add_library(kmeans-cpu src/cpu/kmeans_cpu.hpp
+        src/cpu/kmeans_cpu_v1.cpp
+        src/cpu/kmeans_cpu_v2.cpp
+        src/cpu/kmeans_cpu_v3.cpp)
 target_link_libraries(kmeans-cpu PUBLIC kmeans)
+target_link_libraries(kmeans-cpu PUBLIC OpenMP::OpenMP_CXX)
+
 
 add_library(kmeans-usm src/usm/kmeans_usm.hpp
         src/usm/kmeans_usm.hpp
@@ -67,20 +65,23 @@ target_link_libraries(kmeans-buf PUBLIC kmeans)
 add_library(kmeans-simd src/simd/kmeans_simd.hpp src/simd/kmeans_simd.cpp)
 add_sycl_to_target(TARGET kmeans-simd src/simd/kmeans_simd.cpp)
 target_link_libraries(kmeans-simd PUBLIC kmeans)
+target_compile_options(kmeans-simd PRIVATE -msse4.1)
 
 ## Tests
 
-add_executable(test-devices ${SOURCES} test/test_devices.cpp test/util.hpp)
-target_link_libraries(test-devices PRIVATE kmeans-cpu kmeans-usm kmeans-buf kmeans-simd)
-add_sycl_to_target(TARGET test-devices src/buf/kmeans_buf.cpp src/usm/kmeans_usm.cpp)
+set(LIBRARIES kmeans-cpu kmeans-usm kmeans-buf kmeans-simd)
 
-add_executable(test-correctness ${SOURCES} test/test_correctness.cpp test/util.hpp)
-target_link_libraries(test-correctness PRIVATE kmeans-cpu kmeans-usm kmeans-buf kmeans-simd)
-add_sycl_to_target(TARGET test-correctness src/buf/kmeans_buf.cpp src/usm/kmeans_usm.cpp)
+add_executable(test-devices test/test_devices.cpp test/util.hpp)
+target_link_libraries(test-devices PRIVATE ${LIBRARIES})
+add_sycl_to_target(TARGET test-devices)
 
-add_executable(test-results ${SOURCES} test/test_results.cpp test/util.hpp)
-target_link_libraries(test-results PRIVATE kmeans-cpu kmeans-usm kmeans-buf kmeans-simd)
-add_sycl_to_target(TARGET test-results src/buf/kmeans_buf.cpp src/usm/kmeans_usm.cpp)
+add_executable(test-correctness test/test_correctness.cpp test/util.hpp)
+target_link_libraries(test-correctness PRIVATE ${LIBRARIES})
+add_sycl_to_target(TARGET test-correctness)
+
+add_executable(test-results test/test_results.cpp test/util.hpp)
+target_link_libraries(test-results PRIVATE ${LIBRARIES})
+add_sycl_to_target(TARGET test-results)
 
 
 set(TEST_DATA_FILE "${CMAKE_BINARY_DIR}/data.txt")

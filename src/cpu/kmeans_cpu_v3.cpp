@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <vector>
 
-kmeans_cluster_t kmeans_omp::cluster(const size_t max_iter, double tol) {
+kmeans_cluster_t kmeans_cpu_v3::cluster(const size_t max_iter, double tol) {
   if (k > points.size()) {
     throw std::invalid_argument("Number of clusters must be less than or equal "
                                 "to the number of points");
@@ -26,6 +26,7 @@ kmeans_cluster_t kmeans_omp::cluster(const size_t max_iter, double tol) {
   for (iter = 0; iter < max_iter; iter++) {
 
     // Assign each point to the "closest" centroid
+#pragma omp parallel for default(none) shared(points, centroids, assoc)
     for (size_t p_idx = 0; p_idx < points.size(); p_idx++) {
       auto min_distance = std::numeric_limits<double>::max();
       auto min_idx      = size_t{0};
@@ -55,7 +56,9 @@ kmeans_cluster_t kmeans_omp::cluster(const size_t max_iter, double tol) {
       new_centroids[centroid_idx].y += points[p_idx].y;
       assoc_len_d[centroid_idx]++;
     }
+
     // - Divide the sum of coordinates by the number of points in the cluster
+#pragma omp parallel for default(none) shared(new_centroids, assoc_len_d)
     for (auto c_idx = size_t{0}; c_idx < k; c_idx++) {
       if (assoc_len_d[c_idx] > 0) {
         new_centroids[c_idx].x /= static_cast<float>(assoc_len_d[c_idx]);

@@ -3,7 +3,6 @@
 #include <cstdlib>
 #include <iosfwd>
 #include <iostream>
-#include <istream>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -16,8 +15,8 @@
 #include "usm/kmeans_usm.hpp"
 
 template <typename T>
-auto time_and_print(const std::string &name, T &km, size_t max_iter, double tol)
-    -> decltype(km.cluster(max_iter, tol), void()) {
+auto time_and_print(const std::string &name, T &km, size_t max_iter, double tol, long comp_time = 0)
+    -> decltype(km.cluster(max_iter, tol), long()) {
 
   const std::string class_name = typeid(T).name();
   logger::info() << "Running kmeans on " << name << " <class " << class_name << ">\n";
@@ -29,8 +28,13 @@ auto time_and_print(const std::string &name, T &km, size_t max_iter, double tol)
   const long time =
       std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
 
-  std::cerr << "\ttime: " << time << "ms" << ", iterations: " << km.get_iters() << std::endl;
-  return;
+  std::cerr << "\ttime: " << time << "ms" << ", iterations: " << km.get_iters();
+  if (comp_time > 0) {
+    float speedup = static_cast<float>(comp_time) / static_cast<float>(time);
+    std::cerr << ", speedup: " << speedup;
+  }
+  std::cerr << std::endl;
+  return time;
 }
 
 int main(const int argc, char **argv) {
@@ -56,52 +60,61 @@ int main(const int argc, char **argv) {
     auto dev_vendor = device.get_info<sycl::info::device::vendor>();
     logger::info() << "  - " << dev_name << " (" << dev_vendor << ")" << std::endl;
   }
-  {
-    auto kmeans = kmeans_omp{k, data};
-    time_and_print("CPU", kmeans, max_iter, tol);
-  }
+
+  long ref_time;
 
   {
+    auto kmeans = kmeans_cpu_v1{k, data};
+    ref_time    = time_and_print("CPU (v1)", kmeans, max_iter, tol);
+  }
+  {
+    auto kmeans = kmeans_cpu_v2{k, data};
+    time_and_print("CPU (v2)", kmeans, max_iter, tol, ref_time);
+  }
+  {
+    auto kmeans = kmeans_cpu_v3{k, data};
+    time_and_print("CPU (v3)", kmeans, max_iter, tol, ref_time);
+  }
+  {
     auto kmeans = kmeans_simd{k, data};
-    time_and_print("CPU (SIMD)", kmeans, max_iter, tol);
+    time_and_print("CPU (SIMD)", kmeans, max_iter, tol, ref_time);
   }
 
   // with every device
   for (auto &device : devices) {
     auto device_name = device.get_info<sycl::info::device::name>();
-    // auto device_vendor = device.get_info<sycl::info::device::vendor>();
 
     const auto q = sycl::queue{device};
 
     {
       auto kmeans = kmeans_usm_v2{q, k, data};
-      time_and_print(device_name + " (USM, v2)", kmeans, max_iter, tol);
+      time_and_print(device_name + " (USM, v2)", kmeans, max_iter, tol, ref_time);
     }
     {
       auto kmeans = kmeans_usm_v3{q, k, data};
-      time_and_print(device_name + " (USM, v3)", kmeans, max_iter, tol);
+      time_and_print(device_name + " (USM, v3)", kmeans, max_iter, tol, ref_time);
     }
 
-    // {
-    //   auto kmeans = kmeans_buf{q, k, data};
-    //   time_and_print(device_name, kmeans, max_iter, tol);
-    // }
+    {
+      auto kmeans = kmeans_buf{q, k, data};
+      time_and_print(device_name + " (Buf)", kmeans, max_iter, tol, ref_time);
+    }
 
     auto inorder_q = sycl::queue{device, sycl::property::queue::in_order{}};
 
     {
       auto kmeans = kmeans_usm_v2{inorder_q, k, data};
-      time_and_print(device_name + " (USM, v2, in-order)", kmeans, max_iter, tol);
+      time_and_print(device_name + " (USM, v2, in-order)", kmeans, max_iter, tol, ref_time);
     }
     {
       auto kmeans = kmeans_usm_v3{inorder_q, k, data};
-      time_and_print(device_name + " (USM, v3, in-order)", kmeans, max_iter, tol);
+      time_and_print(device_name + " (USM, v3, in-order)", kmeans, max_iter, tol, ref_time);
     }
 
-    // {
-    //   auto kmeans = kmeans_buf{inorder_q, k, data};
-    //   time_and_print(device_name + " (Buf, in-order)", kmeans, max_iter, tol);
-    // }
+    {
+      auto kmeans = kmeans_buf{inorder_q, k, data};
+      time_and_print(device_name + " (Buf, in-order)", kmeans, max_iter, tol, ref_time);
+    }
   }
 
   return EXIT_SUCCESS;

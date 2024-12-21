@@ -4,8 +4,7 @@
 #include <iostream>
 #include <istream>
 
-#include "kmeans.hpp"
-
+#include "buf/kmeans_buf.hpp"
 #include "cpu/kmeans_cpu.hpp"
 #include "simd/kmeans_simd.hpp"
 #include "usm/kmeans_usm.hpp"
@@ -48,7 +47,7 @@ int main(const int argc, char **argv) {
   logger::info() << "Data size: " << data.size() << std::endl;
 
   logger::info() << "Running kmeans on CPU\n";
-  auto k_cpu = kmeans_omp{static_cast<size_t>(k), data};
+  auto k_cpu = kmeans_cpu_v3{static_cast<size_t>(k), data};
 
   const auto [centroids, clusters] = k_cpu.cluster(max_iter, tol);
 
@@ -58,9 +57,9 @@ int main(const int argc, char **argv) {
 
   const auto q = sycl::queue{};
 
-  logger::info() << "Running kmeans on USM\n";
-  const auto k_usm = kmeans_usm{q, static_cast<size_t>(k), data};
-  do_work_sycl(k_usm, centroids, max_iter, tol, k);
+  logger::info() << "Running kmeans on USM v1\n";
+  const auto k_usm_v1 = kmeans_usm_v3{q, static_cast<size_t>(k), data};
+  do_work_sycl(k_usm_v1, centroids, max_iter, tol, k);
 
   return EXIT_SUCCESS;
 }

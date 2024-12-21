@@ -64,8 +64,16 @@ int main(const int argc, char **argv) {
   constexpr size_t max_iter = 1000;
   constexpr double tol      = 1e-4;
   {
-    auto kmeans = kmeans_omp{k, data};
-    test("CPU", output_dir + "/cpu.json", kmeans, max_iter, tol);
+    auto kmeans = kmeans_cpu_v1{k, data};
+    test("CPU", output_dir + "/cpu_v1.json", kmeans, max_iter, tol);
+  }
+  {
+    auto kmeans = kmeans_cpu_v2{k, data};
+    test("CPU (v2)", output_dir + "/cpu_v2.json", kmeans, max_iter, tol);
+  }
+  {
+    auto kmeans = kmeans_cpu_v3{k, data};
+    test("CPU (v3)", output_dir + "/cpu_v3.json", kmeans, max_iter, tol);
   }
 
   {
