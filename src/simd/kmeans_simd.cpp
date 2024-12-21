@@ -2,8 +2,8 @@
 
 #include <cstdint>
 #include <emmintrin.h>
-#include <smmintrin.h>
 #include <limits>
+#include <smmintrin.h>
 
 template <typename T, size_t Alignment> T *aligned_malloc(const size_t size) {
   void *ptr = _mm_malloc(size * sizeof(T), Alignment);
@@ -94,16 +94,16 @@ inline __m128 squared_distance_sse(const __m128 px, const __m128 py, const __m12
 }
 
 kmeans_cluster_t kmeans_simd::cluster(const size_t max_iter, double tol) {
-  if (this->points_.size() > std::numeric_limits<uint32_t>::max()) {
+  if (this->points.size() > std::numeric_limits<uint32_t>::max()) {
     throw std::invalid_argument("Number of points exceeds the maximum supported value");
   }
-  if (this->k_ > std::numeric_limits<uint32_t>::max()) {
+  if (this->k > std::numeric_limits<uint32_t>::max()) {
     throw std::invalid_argument("Number of clusters exceeds the maximum supported value");
   }
 
   // Copy member variables to local variables
-  const auto points_n = static_cast<uint32_t>(points_.size());
-  const auto k        = static_cast<uint32_t>(k_);
+  const auto points_n = static_cast<uint32_t>(this->points.size());
+  const auto k        = static_cast<uint32_t>(this->k);
 
   if (k > points_n) {
     throw std::invalid_argument("Number of clusters must be less than or equal "
@@ -120,8 +120,8 @@ kmeans_cluster_t kmeans_simd::cluster(const size_t max_iter, double tol) {
 
   // Copy the points to aligned arrays
   for (size_t i = 0; i < points_n; i++) {
-    points_x[i] = points_[i].x;
-    points_y[i] = points_[i].y;
+    points_x[i] = points[i].x;
+    points_y[i] = points[i].y;
   }
 
   auto centroids_x = aligned_malloc<float, alignment>(k);
@@ -129,8 +129,8 @@ kmeans_cluster_t kmeans_simd::cluster(const size_t max_iter, double tol) {
 
   // Copy the first k points as initial centroids
   for (size_t i = 0; i < k; i++) {
-    centroids_x[i] = points_[i].x;
-    centroids_y[i] = points_[i].y;
+    centroids_x[i] = points[i].x;
+    centroids_y[i] = points[i].y;
   }
 
   const auto assoc = aligned_malloc<int, alignment>(points_n);
