@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <vector>
 
-kmeans_cluster_t kmeans_cpu::cluster(const size_t max_iter, double tol) {
+kmeans_cluster_t kmeans_omp::cluster(const size_t max_iter, double tol) {
   if (k > points.size()) {
     throw std::invalid_argument("Number of clusters must be less than or equal "
                                 "to the number of points");

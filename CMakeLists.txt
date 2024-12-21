@@ -53,7 +53,10 @@ add_library(kmeans INTERFACE src/kmeans.hpp)
 add_library(kmeans-cpu src/cpu/kmeans_cpu.hpp src/cpu/kmeans_cpu.cpp)
 target_link_libraries(kmeans-cpu PUBLIC kmeans)
 
-add_library(kmeans-usm src/usm/kmeans_usm.hpp src/usm/kmeans_usm.cpp)
+add_library(kmeans-usm src/usm/kmeans_usm.hpp
+        src/usm/kmeans_usm.hpp
+        src/usm/kmeans_usm_v2.cpp
+        src/usm/kmeans_usm_v3.cpp)
 add_sycl_to_target(TARGET kmeans-usm src/usm/kmeans_usm.cpp)
 target_link_libraries(kmeans-usm PUBLIC kmeans)
 

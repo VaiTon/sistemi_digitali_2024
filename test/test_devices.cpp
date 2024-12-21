@@ -57,7 +57,7 @@ int main(const int argc, char **argv) {
     logger::info() << "  - " << dev_name << " (" << dev_vendor << ")" << std::endl;
   }
   {
-    auto kmeans = kmeans_cpu{k, data};
+    auto kmeans = kmeans_omp{k, data};
     time_and_print("CPU", kmeans, max_iter, tol);
   }
 
@@ -74,8 +74,12 @@ int main(const int argc, char **argv) {
     const auto q = sycl::queue{device};
 
     {
-      auto kmeans = kmeans_usm{q, k, data};
-      time_and_print(device_name, kmeans, max_iter, tol);
+      auto kmeans = kmeans_usm_v2{q, k, data};
+      time_and_print(device_name + " (USM, v2)", kmeans, max_iter, tol);
+    }
+    {
+      auto kmeans = kmeans_usm_v3{q, k, data};
+      time_and_print(device_name + " (USM, v3)", kmeans, max_iter, tol);
     }
 
     // {
@@ -86,13 +90,17 @@ int main(const int argc, char **argv) {
     auto inorder_q = sycl::queue{device, sycl::property::queue::in_order{}};
 
     {
-      auto kmeans = kmeans_usm{inorder_q, k, data};
-      time_and_print(device_name + " (in-order)", kmeans, max_iter, tol);
+      auto kmeans = kmeans_usm_v2{inorder_q, k, data};
+      time_and_print(device_name + " (USM, v2, in-order)", kmeans, max_iter, tol);
+    }
+    {
+      auto kmeans = kmeans_usm_v3{inorder_q, k, data};
+      time_and_print(device_name + " (USM, v3, in-order)", kmeans, max_iter, tol);
     }
 
     // {
     //   auto kmeans = kmeans_buf{inorder_q, k, data};
-    //   time_and_print(device_name + " (in-order)", kmeans, max_iter, tol);
+    //   time_and_print(device_name + " (Buf, in-order)", kmeans, max_iter, tol);
     // }
   }
 

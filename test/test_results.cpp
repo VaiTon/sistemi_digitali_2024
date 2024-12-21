@@ -32,6 +32,20 @@ void save_results(const std::string &path, const kmeans_cluster_t &res) {
   file << "]" << std::endl;
 }
 
+template <typename T>
+auto test(const std::string &name, const std::string &filename, T &km, size_t max_iter, double tol)
+    -> decltype(km.cluster(max_iter, tol), void()) {
+
+  const std::string class_name = typeid(T).name();
+  logger::info() << "Running kmeans on " << name << " <class " << class_name << ">\n";
+  auto res = km.cluster(max_iter, tol);
+
+  logger::info() << "Saving results to " << filename << "\n";
+  save_results(filename, res);
+
+  return;
+}
+
 int main(const int argc, char **argv) {
   if (argc < 4) {
     std::cerr << "Usage: " << argv[0] << " <data.csv> <k> <output_dir>";
@@ -50,36 +64,30 @@ int main(const int argc, char **argv) {
   constexpr size_t max_iter = 1000;
   constexpr double tol      = 1e-4;
   {
-    logger::info() << "Running kmeans on CPU\n";
-    auto       kmeans = kmeans_cpu{k, data};
-    const auto res    = kmeans.cluster(max_iter, tol);
-    logger::info() << "Saving results to " << output_dir << "/cpu.json\n";
-    save_results(output_dir + "/cpu.json", res);
+    auto kmeans = kmeans_omp{k, data};
+    test("CPU", output_dir + "/cpu.json", kmeans, max_iter, tol);
   }
 
   {
-    logger::info() << "Running kmeans on SIMD\n";
-    auto       kmeans = kmeans_simd{k, data};
-    const auto res    = kmeans.cluster(max_iter, tol);
-    logger::info() << "Saving results to " << output_dir << "/simd.json\n";
-    save_results(output_dir + "/simd.json", res);
+    auto kmeans = kmeans_simd{k, data};
+    test("CPU (SIMD)", output_dir + "/simd.json", kmeans, max_iter, tol);
   }
 
   const auto q = sycl::queue{};
   logger::info() << "Running on: " << q.get_device().get_info<sycl::info::device::name>() << "\n";
 
   {
-    auto       kmeans = kmeans_usm{q, k, data};
-    const auto res    = kmeans.cluster(max_iter, tol);
-    logger::info() << "Saving results to " << output_dir << "/usm.json\n";
-    save_results(output_dir + "/usm.json", res);
+    auto kmeans = kmeans_usm_v2{q, k, data};
+    test("USM v2", output_dir + "/usm_v2.json", kmeans, max_iter, tol);
+  }
+  {
+    auto kmeans = kmeans_usm_v3{q, k, data};
+    test("USM v3", output_dir + "/usm_v3.json", kmeans, max_iter, tol);
   }
 
   {
-    auto       kmeans = kmeans_buf{q, k, data};
-    const auto res    = kmeans.cluster(max_iter, tol);
-    logger::info() << "Saving results to " << output_dir << "/buf.json\n";
-    save_results(output_dir + "/buf.json", res);
+    auto kmeans = kmeans_buf{q, k, data};
+    test("Buffer", output_dir + "/buf.json", kmeans, max_iter, tol);
   }
 
   return EXIT_SUCCESS;

@@ -21,7 +21,7 @@ size_t divceil(size_t n, size_t m) { return (n + m - 1) / m; }
 /// i.e., pad_to_multiple_of(5, 3) == 6
 size_t pad_to_multiple_of(size_t n, size_t m) { return divceil(n, m) * m; }
 
-struct assign_points_to_clusters_kernel {
+struct assign_points_to_clusters_kernel_v3 {
   const point_t *points;
   const size_t   num_points;
 
@@ -59,7 +59,7 @@ struct assign_points_to_clusters_kernel {
   }
 
 private:
-  static inline float squared_distance(const point_t &lhs, const point_t &rhs) {
+  static float squared_distance(const point_t &lhs, const point_t &rhs) {
     const auto dx = lhs.x - rhs.x;
     const auto dy = lhs.y - rhs.y;
 
@@ -67,7 +67,7 @@ private:
   }
 };
 
-struct partial_reduction_kernel {
+struct partial_reduction_kernel_v3 {
 
   const size_t num_centroids;
   const size_t num_points;
@@ -136,7 +136,7 @@ struct partial_reduction_kernel {
   }
 };
 
-struct final_reduction_kernel {
+struct final_reduction_kernel_v3 {
   size_t num_work_groups;
   size_t num_centroids;
 
@@ -178,7 +178,7 @@ struct final_reduction_kernel {
   }
 };
 
-struct check_convergence_kernel {
+struct check_convergence_kernel_v3 {
   size_t k;
   double tol;
 
@@ -203,7 +203,7 @@ struct check_convergence_kernel {
   }
 };
 
-kmeans_cluster_t kmeans_usm::cluster(const size_t max_iter, const double tol) {
+kmeans_cluster_t kmeans_usm_v3::cluster(const size_t max_iter, const double tol) {
 
   if (k > points.size()) {
     throw std::invalid_argument("Number of clusters (" + std::to_string(k) +
@@ -280,7 +280,8 @@ kmeans_cluster_t kmeans_usm::cluster(const size_t max_iter, const double tol) {
 
       const auto exec_range = nd_range{range{g_size}, range{wg_size}};
 
-      auto kernel = assign_points_to_clusters_kernel{points_d, points_n, centroids_d, k, assoc_d};
+      auto kernel =
+          assign_points_to_clusters_kernel_v3{points_d, points_n, centroids_d, k, assoc_d};
       q.parallel_for(exec_range, kernel).wait();
     }
 
@@ -308,7 +309,7 @@ kmeans_cluster_t kmeans_usm::cluster(const size_t max_iter, const double tol) {
          local_accessor<double> local_sums_y{kernel_partial_local_size * k, h};
          local_accessor<size_t> local_counts{kernel_partial_local_size * k, h};
 
-         auto kernel = partial_reduction_kernel{
+         auto kernel = partial_reduction_kernel_v3{
              .num_centroids = k,
              .num_points    = points_n,
 
@@ -329,7 +330,7 @@ kmeans_cluster_t kmeans_usm::cluster(const size_t max_iter, const double tol) {
 
     // Step 2.2: Final reduction and compute centroids
     {
-      auto kernel = final_reduction_kernel{
+      auto kernel = final_reduction_kernel_v3{
           .num_work_groups = kernel_partial_wgs,
           .num_centroids   = k,
           .partial_sums_x  = partial_sums_x,
@@ -343,7 +344,7 @@ kmeans_cluster_t kmeans_usm::cluster(const size_t max_iter, const double tol) {
 
     // Step 3: Check for convergence
     {
-      auto kernel = check_convergence_kernel{k, tol, converged, centroids_d, new_centroids_d};
+      auto kernel = check_convergence_kernel_v3{k, tol, converged, centroids_d, new_centroids_d};
       q.single_task(kernel).wait();
     }
 

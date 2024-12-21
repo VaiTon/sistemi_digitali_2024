@@ -47,7 +47,8 @@ int main(const int argc, char **argv) {
   const auto data = get_data(input_filename);
   logger::info() << "Data size: " << data.size() << std::endl;
 
-  auto k_cpu = kmeans_cpu{static_cast<size_t>(k), data};
+  logger::info() << "Running kmeans on CPU\n";
+  auto k_cpu = kmeans_omp{static_cast<size_t>(k), data};
 
   const auto [centroids, clusters] = k_cpu.cluster(max_iter, tol);
 
