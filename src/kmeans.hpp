@@ -13,7 +13,7 @@ struct kmeans_cluster_t {
 
 class kmeans {
 public:
-  kmeans(const size_t k, const std::vector<point_t> &points) : k(k), points(points) {
+  kmeans(const size_t k, const std::vector<point_t> &points) : num_centroids(k), points(points) {
     if (k == 0) {
       throw std::invalid_argument("Number of clusters must be greater than 0");
     }
@@ -29,14 +29,14 @@ public:
   virtual ~kmeans()                                             = default;
 
 protected:
-  const size_t               k;
+  const size_t               num_centroids;
   const std::vector<point_t> points;
   size_t                     iter = 0;
 };
 
-inline double squared_distance(const point_t &lhs, const point_t &rhs) {
-  const double dx = lhs.x - rhs.x;
-  const double dy = lhs.y - rhs.y;
+inline float squared_distance(const point_t &lhs, const point_t &rhs) {
+  const float dx = lhs.x - rhs.x;
+  const float dy = lhs.y - rhs.y;
 
   return dx * dx + dy * dy;
 }

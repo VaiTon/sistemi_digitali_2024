@@ -8,7 +8,7 @@
 using namespace sycl;
 
 kmeans_cluster_t kmeans_buf::cluster(const size_t max_iter, double tol) {
-  if (k > points.size()) {
+  if (num_centroids > points.size()) {
     throw std::invalid_argument("Number of clusters must be less than or equal "
                                 "to the number of points");
   }
@@ -17,7 +17,7 @@ kmeans_cluster_t kmeans_buf::cluster(const size_t max_iter, double tol) {
   tol *= tol;
 
   const auto points_n = points.size();
-  const auto k        = this->k;
+  const auto k        = this->num_centroids;
 
   // Step 0: Initialize centroids
   // For simplicity, let's assume the first k points are the initial centroids.

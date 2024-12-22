@@ -95,15 +95,15 @@ inline __m128 squared_distance_sse(const __m128 px, const __m128 py, const __m12
 
 kmeans_cluster_t kmeans_simd::cluster(const size_t max_iter, double tol) {
   if (this->points.size() > std::numeric_limits<uint32_t>::max()) {
-    throw std::invalid_argument("Number of points exceeds the maximum supported value");
+    throw std::invalid_argument("Number of points exceeds the maximum supported value for SIMD");
   }
-  if (this->k > std::numeric_limits<uint32_t>::max()) {
-    throw std::invalid_argument("Number of clusters exceeds the maximum supported value");
+  if (this->num_centroids > std::numeric_limits<uint32_t>::max()) {
+    throw std::invalid_argument("Number of clusters exceeds the maximum supported value for SIMD");
   }
 
   // Copy member variables to local variables
   const auto points_n = static_cast<uint32_t>(this->points.size());
-  const auto k        = static_cast<uint32_t>(this->k);
+  const auto k        = static_cast<uint32_t>(this->num_centroids);
 
   if (k > points_n) {
     throw std::invalid_argument("Number of clusters must be less than or equal "

@@ -40,7 +40,7 @@ add_compile_definitions(SYCL_TYPE="${SYCL_TYPE}")
 
 include_directories(src)
 
-add_library(kmeans INTERFACE src/kmeans.hpp)
+add_library(kmeans INTERFACE src/kmeans.hpp src/point.hpp)
 
 find_package(OpenMP REQUIRED)
 add_library(kmeans-cpu src/cpu/kmeans_cpu.hpp
