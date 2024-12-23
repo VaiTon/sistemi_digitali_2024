@@ -11,6 +11,7 @@
 
 #include "buf/kmeans_buf.hpp"
 #include "cpu/kmeans_cpu.hpp"
+#include "ocv/kmeans_ocv.hpp"
 #include "omp/kmeans_omp.hpp"
 #include "simd/kmeans_simd.hpp"
 #include "usm/kmeans_usm.hpp"
@@ -96,6 +97,10 @@ int main(const int argc, char **argv) {
   {
     auto kmeans = kmeans_simd{k, data};
     time_and_print("CPU (SIMD)", kmeans, max_iter, tol, ref_time);
+  }
+  {
+    auto kmeans = kmeans_ocv{k, data};
+    time_and_print("OpenCV Universal Intrinsics", kmeans, max_iter, tol, ref_time);
   }
 
   // with every device

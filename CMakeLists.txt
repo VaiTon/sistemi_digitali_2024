@@ -43,7 +43,7 @@ add_subdirectory(src)
 
 ## Tests
 
-set(LIBRARIES kmeans-cpu kmeans-usm kmeans-buf kmeans-simd kmeans-omp)
+set(LIBRARIES kmeans-cpu kmeans-usm kmeans-buf kmeans-simd kmeans-omp kmeans-ocv)
 
 add_executable(test-devices test/test_devices.cpp test/util.hpp)
 

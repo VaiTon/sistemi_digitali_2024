@@ -10,6 +10,7 @@
 
 #include "buf/kmeans_buf.hpp"
 #include "cpu/kmeans_cpu.hpp"
+#include "ocv/kmeans_ocv.hpp"
 #include "omp/kmeans_omp.hpp"
 #include "simd/kmeans_simd.hpp"
 #include "usm/kmeans_usm.hpp"
@@ -80,6 +81,10 @@ int main(const int argc, char **argv) {
   {
     auto kmeans = kmeans_simd{k, data};
     test("CPU (SIMD)", output_dir + "/simd.json", kmeans, max_iter, tol);
+  }
+  {
+    auto kmeans = kmeans_ocv{k, data};
+    test("OpenCV", output_dir + "/ocv.json", kmeans, max_iter, tol);
   }
 
   const auto q = sycl::queue{};
