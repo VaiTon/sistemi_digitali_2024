@@ -1,11 +1,11 @@
-#include "kmeans_cpu.hpp"
+#include "kmeans_omp.hpp"
 
 #include <algorithm>
 #include <limits>
 #include <stdexcept>
 #include <vector>
 
-kmeans_cluster_t kmeans_cpu_v3::cluster(const size_t max_iter, double tol) {
+kmeans_cluster_t kmeans_omp::cluster(const size_t max_iter, double tol) {
   if (num_centroids > points.size()) {
     throw std::invalid_argument("Number of clusters must be less than or equal "
                                 "to the number of points");
@@ -13,9 +13,10 @@ kmeans_cluster_t kmeans_cpu_v3::cluster(const size_t max_iter, double tol) {
 
   tol = tol * tol; // we use squared distance for convergence check
 
-  auto centroids     = std::vector<point_t>(num_centroids);            // Centroids
-  auto new_centroids = std::vector<point_t>(num_centroids);            // Updated centroids after each iteration
-  auto assoc_len_d   = std::vector<size_t>(num_centroids);             // Number of points in each cluster
+  auto centroids     = std::vector<point_t>(num_centroids); // Centroids
+  // Updated centroids after each iteration
+  auto new_centroids = std::vector<point_t>(num_centroids);
+  auto assoc_len_d   = std::vector<size_t>(num_centroids); // Number of points in each cluster
   auto assoc         = std::vector<size_t>(points.size()); // Association of each point to a cluster
   auto converged     = bool{false};                        // Convergence flag
 

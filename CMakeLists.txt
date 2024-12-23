@@ -39,39 +39,16 @@ endif ()
 add_compile_definitions(SYCL_TYPE="${SYCL_TYPE}")
 
 include_directories(src)
-
-add_library(kmeans INTERFACE src/kmeans.hpp src/point.hpp)
-
-find_package(OpenMP REQUIRED)
-add_library(kmeans-cpu src/cpu/kmeans_cpu.hpp
-        src/cpu/kmeans_cpu_v1.cpp
-        src/cpu/kmeans_cpu_v2.cpp
-        src/cpu/kmeans_cpu_v3.cpp)
-target_link_libraries(kmeans-cpu PUBLIC kmeans)
-target_link_libraries(kmeans-cpu PUBLIC OpenMP::OpenMP_CXX)
-
-
-add_library(kmeans-usm src/usm/kmeans_usm.hpp
-        src/usm/kmeans_usm.hpp
-        src/usm/kmeans_usm_v2.cpp
-        src/usm/kmeans_usm_v3.cpp)
-add_sycl_to_target(TARGET kmeans-usm src/usm/kmeans_usm.cpp)
-target_link_libraries(kmeans-usm PUBLIC kmeans)
-
-add_library(kmeans-buf src/buf/kmeans_buf.hpp src/buf/kmeans_buf.cpp)
-add_sycl_to_target(TARGET kmeans-buf src/buf/kmeans_buf.cpp)
-target_link_libraries(kmeans-buf PUBLIC kmeans)
-
-add_library(kmeans-simd src/simd/kmeans_simd.hpp src/simd/kmeans_simd.cpp)
-add_sycl_to_target(TARGET kmeans-simd src/simd/kmeans_simd.cpp)
-target_link_libraries(kmeans-simd PUBLIC kmeans)
-target_compile_options(kmeans-simd PRIVATE -msse4.1)
+add_subdirectory(src)
 
 ## Tests
 
-set(LIBRARIES kmeans-cpu kmeans-usm kmeans-buf kmeans-simd)
+set(LIBRARIES kmeans-cpu kmeans-usm kmeans-buf kmeans-simd kmeans-omp)
 
 add_executable(test-devices test/test_devices.cpp test/util.hpp)
+
+find_package(OpenMP REQUIRED)
+target_link_libraries(test-devices PRIVATE OpenMP::OpenMP_CXX)
 target_link_libraries(test-devices PRIVATE ${LIBRARIES})
 add_sycl_to_target(TARGET test-devices)
 

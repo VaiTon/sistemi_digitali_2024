@@ -10,6 +10,7 @@
 
 #include "buf/kmeans_buf.hpp"
 #include "cpu/kmeans_cpu.hpp"
+#include "omp/kmeans_omp.hpp"
 #include "simd/kmeans_simd.hpp"
 #include "usm/kmeans_usm.hpp"
 
@@ -72,8 +73,8 @@ int main(const int argc, char **argv) {
     test("CPU (v2)", output_dir + "/cpu_v2.json", kmeans, max_iter, tol);
   }
   {
-    auto kmeans = kmeans_cpu_v3{k, data};
-    test("CPU (v3)", output_dir + "/cpu_v3.json", kmeans, max_iter, tol);
+    auto kmeans = kmeans_omp{k, data};
+    test("OpenMP", output_dir + "/omp.json", kmeans, max_iter, tol);
   }
 
   {

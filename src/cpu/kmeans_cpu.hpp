@@ -21,14 +21,6 @@ public:
   kmeans_cluster_t cluster(size_t max_iter, double tol) override;
 };
 
-/// CPU-based implementation of the k-means algorithm.
-/// Uses an associations list to keep track of the points associated with each cluster and
-/// additionally uses OpenMP for parallelization.
-class kmeans_cpu_v3 final : public kmeans {
-public:
-  kmeans_cpu_v3(const size_t k, const std::vector<point_t> &points) : kmeans(k, points) {}
 
-  kmeans_cluster_t cluster(size_t max_iter, double tol) override;
-};
 
 #endif // KMEANS_CPU_HPP

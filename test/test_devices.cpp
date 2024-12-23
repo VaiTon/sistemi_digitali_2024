@@ -11,6 +11,7 @@
 
 #include "buf/kmeans_buf.hpp"
 #include "cpu/kmeans_cpu.hpp"
+#include "omp/kmeans_omp.hpp"
 #include "simd/kmeans_simd.hpp"
 #include "usm/kmeans_usm.hpp"
 
@@ -82,14 +83,15 @@ int main(const int argc, char **argv) {
     time_and_print("CPU (v2)", kmeans, max_iter, tol, ref_time);
   }
   {
-    auto kmeans      = kmeans_cpu_v3{k, data};
+    auto kmeans      = kmeans_omp{k, data};
     auto max_threads = omp_get_max_threads();
 
     omp_set_num_threads(1);
-    time_and_print("CPU (v3, 1 thread)", kmeans, max_iter, tol, ref_time);
+    time_and_print("OpenMP (1 thread)", kmeans, max_iter, tol, ref_time);
 
     omp_set_num_threads(max_threads);
-    time_and_print("CPU (v3, max threads)", kmeans, max_iter, tol, ref_time, max_threads);
+    time_and_print("OpenMP (" + std::to_string(max_threads) + " threads)", kmeans, max_iter, tol,
+                   ref_time, max_threads);
   }
   {
     auto kmeans = kmeans_simd{k, data};
