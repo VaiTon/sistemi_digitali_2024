@@ -1,6 +1,8 @@
 #include "kmeans_cpu.hpp"
 
+#include <algorithm>
 #include <iostream>
+#include <limits>
 
 kmeans_cluster_t kmeans_cpu_v1::cluster(const size_t max_iter, double tol) {
   tol = tol * tol; // we use squared distance for convergence check
@@ -59,7 +61,7 @@ kmeans_cluster_t kmeans_cpu_v1::cluster(const size_t max_iter, double tol) {
     }
 
     // Update centroids
-    std::ranges::copy(new_centroids, centroids.begin());
+    std::copy_n(new_centroids.begin(), num_centroids, centroids.begin());
 
     if (converged) {
       break;

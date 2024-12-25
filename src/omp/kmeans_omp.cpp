@@ -78,7 +78,7 @@ kmeans_cluster_t kmeans_omp::cluster(const size_t max_iter, double tol) {
     }
 
     // Update centroids
-    std::ranges::copy(new_centroids, centroids.begin());
+    std::copy_n(new_centroids.begin(), num_centroids, centroids.begin());
 
     if (converged) {
       break;

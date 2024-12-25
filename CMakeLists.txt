@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(kmeans CXX)
 
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 17) # on Colab we're stuck with GCC 11
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -48,15 +48,21 @@ set(LIBRARIES kmeans-cpu kmeans-usm kmeans-buf kmeans-simd kmeans-omp kmeans-ocv
 add_executable(test-devices test/test_devices.cpp test/util.hpp)
 
 find_package(OpenMP REQUIRED)
+find_package(fmt REQUIRED)
+
+
 target_link_libraries(test-devices PRIVATE OpenMP::OpenMP_CXX)
+target_link_libraries(test-devices PRIVATE fmt::fmt)
 target_link_libraries(test-devices PRIVATE ${LIBRARIES})
 add_sycl_to_target(TARGET test-devices)
 
 add_executable(test-correctness test/test_correctness.cpp test/util.hpp)
+target_link_libraries(test-correctness PRIVATE fmt::fmt)
 target_link_libraries(test-correctness PRIVATE ${LIBRARIES})
 add_sycl_to_target(TARGET test-correctness)
 
 add_executable(test-results test/test_results.cpp test/util.hpp)
+target_link_libraries(test-correctness PRIVATE fmt::fmt)
 target_link_libraries(test-results PRIVATE ${LIBRARIES})
 add_sycl_to_target(TARGET test-results)
 

@@ -1,11 +1,15 @@
 #include "kmeans_cpu.hpp"
 
+#include <algorithm>
+#include <limits>
+
 kmeans_cluster_t kmeans_cpu_v2::cluster(const size_t max_iter, double tol) {
   tol = tol * tol; // we use squared distance for convergence check
 
-  auto centroids     = std::vector<point_t>(num_centroids);            // Centroids
-  auto new_centroids = std::vector<point_t>(num_centroids);            // Updated centroids after each iteration
-  auto clusters_size = std::vector<size_t>(num_centroids);             // Number of points in each cluster
+  auto centroids = std::vector<point_t>(num_centroids); // Centroids
+  auto new_centroids =
+      std::vector<point_t>(num_centroids);                 // Updated centroids after each iteration
+  auto clusters_size = std::vector<size_t>(num_centroids); // Number of points in each cluster
   auto associations  = std::vector<size_t>(points.size()); // Association of each point to a cluster
   bool converged     = false;                              // Convergence flag
 
@@ -63,7 +67,7 @@ kmeans_cluster_t kmeans_cpu_v2::cluster(const size_t max_iter, double tol) {
     }
 
     // Update centroids
-    std::ranges::copy(new_centroids, centroids.begin());
+    std::copy_n(new_centroids.begin(), num_centroids, centroids.begin());
 
     if (converged) {
       break;
