@@ -38,6 +38,9 @@ endif ()
 
 add_compile_definitions(SYCL_TYPE="${SYCL_TYPE}")
 
+find_package(OpenMP REQUIRED)
+find_package(fmt REQUIRED)
+
 include_directories(src)
 add_subdirectory(src)
 
@@ -46,10 +49,6 @@ add_subdirectory(src)
 set(LIBRARIES kmeans-cpu kmeans-usm kmeans-buf kmeans-simd kmeans-omp kmeans-ocv)
 
 add_executable(test-devices test/test_devices.cpp test/util.hpp)
-
-find_package(OpenMP REQUIRED)
-find_package(fmt REQUIRED)
-
 
 target_link_libraries(test-devices PRIVATE OpenMP::OpenMP_CXX)
 target_link_libraries(test-devices PRIVATE fmt::fmt)
