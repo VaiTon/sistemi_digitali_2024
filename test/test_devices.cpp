@@ -124,10 +124,10 @@ int main(const int argc, char **argv) {
       time_and_print(device_name + " (USM, v3)", kmeans, max_iter, tol, ref_time, compute_units);
     }
 
-    {
-      auto kmeans = kmeans_buf{queue, k, data};
-      time_and_print(device_name + " (Buf)", kmeans, max_iter, tol, ref_time, compute_units);
-    }
+    // {
+    //   auto kmeans = kmeans_buf{queue, k, data};
+    //   time_and_print(device_name + " (Buf)", kmeans, max_iter, tol, ref_time, compute_units);
+    // }
 
     queue         = sycl::queue{device, sycl::property::queue::in_order{}};
     compute_units = device.get_info<sycl::info::device::max_compute_units>();
@@ -143,11 +143,11 @@ int main(const int argc, char **argv) {
                      compute_units);
     }
 
-    {
-      auto kmeans = kmeans_buf{queue, k, data};
-      time_and_print(device_name + " (Buf, in-order)", kmeans, max_iter, tol, ref_time,
-                     omp_get_max_threads());
-    }
+    // {
+    //   auto kmeans = kmeans_buf{queue, k, data};
+    //   time_and_print(device_name + " (Buf, in-order)", kmeans, max_iter, tol, ref_time,
+    //                  omp_get_max_threads());
+    // }
   }
 
   return EXIT_SUCCESS;
