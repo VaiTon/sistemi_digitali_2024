@@ -53,11 +53,11 @@ struct partial_reduction_kernel_v3 {
     const auto k_idx    = assoc[p_idx];                 // Cluster index
     const auto sums_idx = wg_idx * centroids_n + k_idx; // Index in partial sums
 
-    constexpr auto mem_order = memory_order::relaxed;
-    constexpr auto mem_scope = memory_scope::work_group;
-    constexpr auto mem_space = access::address_space::global_space;
-
     const auto custom_atomic_ref = []<typename T>(T &ptr) {
+      constexpr auto mem_order = memory_order::relaxed;
+      constexpr auto mem_scope = memory_scope::device; // work_group is not supported for SM_35
+      constexpr auto mem_space = access::address_space::global_space;
+
       return atomic_ref<T, mem_order, mem_scope, mem_space>{ptr};
     };
 

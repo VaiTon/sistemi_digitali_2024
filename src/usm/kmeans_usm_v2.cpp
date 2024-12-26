@@ -52,11 +52,11 @@ struct partial_reduction_kernel_v2 {
     const auto k_idx    = associations[p_idx];            // Cluster index
     const auto sums_idx = wg_idx * num_centroids + k_idx; // Index in partial sums
 
-    constexpr auto mem_order = memory_order::relaxed;
-    constexpr auto mem_scope = memory_scope::work_group;
-    constexpr auto mem_space = access::address_space::global_space;
-
     const auto custom_atomic_ref = []<typename T>(T &ptr) {
+      constexpr auto mem_order = memory_order::relaxed;
+      constexpr auto mem_scope = memory_scope::device; // work_group is not supported for SM_35
+      constexpr auto mem_space = access::address_space::global_space;
+
       return atomic_ref<T, mem_order, mem_scope, mem_space>{ptr};
     };
 
@@ -64,6 +64,8 @@ struct partial_reduction_kernel_v2 {
     const auto atom_x = custom_atomic_ref(partial_sums_x[sums_idx]);
     const auto atom_y = custom_atomic_ref(partial_sums_y[sums_idx]);
     const auto atom_c = custom_atomic_ref(partial_counts[sums_idx]);
+
+    namespace jit = AdaptiveCpp_jit;
 
     atom_x += static_cast<double>(points[p_idx].x);
     atom_y += static_cast<double>(points[p_idx].y);

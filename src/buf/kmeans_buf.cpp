@@ -102,18 +102,23 @@ kmeans_cluster_t kmeans_buf::cluster(const size_t max_iter, double tol) {
         const auto wg_idx = item.get_group(0); // Workgroup index
         const auto k_idx  = assoc[p_idx];      // Cluster index
 
-        constexpr auto order = memory_order::relaxed;
-        constexpr auto scope = memory_scope::device;
-        constexpr auto as    = access::address_space::global_space;
+        const auto custom_atomic_ref = []<typename T>(T &ptr) {
+          constexpr auto mem_order = memory_order::relaxed;
+          constexpr auto mem_scope = memory_scope::device;
+          constexpr auto mem_space = access::address_space::global_space;
+
+          return atomic_ref<T, mem_order, mem_scope, mem_space>{ptr};
+        };
 
         // Use atomic operations to update partial results
-        auto atom_x     = atomic_ref<double, order, scope, as>{partial_sums_x[wg_idx * k + k_idx]};
-        auto atom_y     = atomic_ref<double, order, scope, as>{partial_sums_y[wg_idx * k + k_idx]};
-        auto atom_count = atomic_ref<size_t, order, scope, as>{partial_counts[wg_idx * k + k_idx]};
+        const size_t partial_idx = wg_idx * k + k_idx;
+        const auto   atom_x      = custom_atomic_ref(partial_sums_x[partial_idx]);
+        const auto   atom_y      = custom_atomic_ref(partial_sums_y[partial_idx]);
+        const auto   atom_c      = custom_atomic_ref(partial_counts[partial_idx]);
 
         atom_x += static_cast<double>(points[p_idx].x);
         atom_y += static_cast<double>(points[p_idx].y);
-        atom_count += size_t{1};
+        atom_c += size_t{1};
       });
     });
 
@@ -122,8 +127,8 @@ kmeans_cluster_t kmeans_buf::cluster(const size_t max_iter, double tol) {
       const auto partial_sums_x = partial_sums_x_d.get_access<access_mode::read>();
       const auto partial_sums_y = partial_sums_y_d.get_access<access_mode::read>();
       const auto partial_counts = partial_counts_d.get_access<access_mode::read>();
+      const auto centroids      = centroids_buf.get_access<access_mode::read>();
 
-      const auto centroids     = centroids_buf.get_access<access_mode::read>();
       const auto new_centroids = new_centroids_buf.get_access<access_mode::write>();
 
       h.parallel_for<class kmeans_final_reduction>(range(k), [=](const id<> k_idx) {
@@ -200,8 +205,5 @@ kmeans_cluster_t kmeans_buf::cluster(const size_t max_iter, double tol) {
   // copy from accessors to host memory
   auto final_centroids = std::vector<point_t>{centroids_acc.begin(), centroids_acc.end()};
 
-  return kmeans_cluster_t{
-      .centroids = final_centroids,
-      .clusters  = final_clusters,
-  };
+  return kmeans_cluster_t{final_centroids, final_clusters};
 }
