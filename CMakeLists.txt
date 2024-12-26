@@ -7,9 +7,16 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(USE_ONEAPI "Use Intel SYCL implementation" OFF)
+option(USE_CUDA   "Use CUDA implementation" OFF)
 
 set(KMEANS_TEST_NUM_POINTS 1000000 CACHE STRING "Number of points to use in tests")
 set(KMEANS_TEST_NUM_CLUSTERS 128 CACHE STRING "Number of clusters to use in tests")
+
+if (USE_CUDA)
+    add_compile_definitions(USE_CUDA)
+    enable_language(CUDA)
+    message(STATUS "Using CUDA")
+endif()
 
 
 if (USE_ONEAPI)
@@ -46,7 +53,6 @@ add_subdirectory(src)
 
 ## Tests
 
-set(LIBRARIES kmeans-cpu kmeans-usm kmeans-buf kmeans-simd kmeans-omp kmeans-ocv)
 
 add_executable(test-devices test/test_devices.cpp test/util.hpp)
 

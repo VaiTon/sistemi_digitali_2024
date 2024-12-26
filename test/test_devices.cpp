@@ -1,12 +1,12 @@
 #include "util.hpp"
 
 #include <cstdlib>
+#include <fmt/core.h>
 #include <iosfwd>
 #include <iostream>
 #include <ostream>
 #include <string>
 #include <vector>
-#include <fmt/core.h>
 
 #include <sycl/sycl.hpp>
 
@@ -16,6 +16,10 @@
 #include "omp/kmeans_omp.hpp"
 #include "simd/kmeans_simd.hpp"
 #include "usm/kmeans_usm.hpp"
+
+#ifdef USE_CUDA
+#include "cuda/kmeans_cuda.hpp"
+#endif
 
 template <typename T>
 auto time_and_print(const std::string &name, T &km, size_t max_iter, double tol,
@@ -106,6 +110,13 @@ int main(const int argc, char **argv) {
     auto kmeans = kmeans_ocv{k, data};
     time_and_print("OpenCV Universal Intrinsics", kmeans, max_iter, tol, ref_time);
   }
+
+#ifdef USE_CUDA
+  {
+    auto kmeans = kmeans_cuda{k, data};
+    time_and_print("CUDA", kmeans, max_iter, tol, ref_time);
+  }
+#endif
 
   // with every device
   for (auto &device : devices) {

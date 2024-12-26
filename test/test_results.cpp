@@ -14,6 +14,7 @@
 #include "omp/kmeans_omp.hpp"
 #include "simd/kmeans_simd.hpp"
 #include "usm/kmeans_usm.hpp"
+#include "cuda/kmeans_cuda.hpp"
 
 void save_results(const std::string &path, const kmeans_cluster_t &res) {
   // open file
@@ -86,6 +87,13 @@ int main(const int argc, char **argv) {
     auto kmeans = kmeans_ocv{k, data};
     test("OpenCV", output_dir + "/ocv.json", kmeans, max_iter, tol);
   }
+
+#ifdef USE_CUDA
+  {
+    auto kmeans = kmeans_cuda{k, data};
+    test("CUDA", output_dir + "/cuda.json", kmeans, max_iter, tol);
+  }
+#endif
 
   const auto q = sycl::queue{};
   logger::info() << "Running on: " << q.get_device().get_info<sycl::info::device::name>() << "\n";

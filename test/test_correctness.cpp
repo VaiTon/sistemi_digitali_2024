@@ -1,5 +1,6 @@
 #include "util.hpp"
 
+#include <algorithm>
 #include <iosfwd>
 #include <iostream>
 #include <istream>
@@ -16,8 +17,8 @@ auto do_work_sycl(T km, const std::vector<point_t> &centroids, const int max_ite
 
   // compare results
   // calculate distance between centroids
-  double max_distance = 0.0;
-  double tot_distance = 0.0;
+  float max_distance = 0.0;
+  float tot_distance = 0.0;
 
   for (int i = 0; i < k; ++i) {
     const auto distance = squared_distance(centroids[i], centroids_sycl[i]);
@@ -47,7 +48,7 @@ int main(const int argc, char **argv) {
   logger::info() << "Data size: " << data.size() << std::endl;
 
   logger::info() << "Running kmeans on CPU\n";
-  auto k_cpu = kmeans_cpu_v3{static_cast<size_t>(k), data};
+  auto k_cpu = kmeans_cpu_v1{static_cast<size_t>(k), data};
 
   const auto [centroids, clusters] = k_cpu.cluster(max_iter, tol);
 

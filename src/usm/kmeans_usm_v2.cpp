@@ -157,9 +157,9 @@ kmeans_cluster_t kmeans_usm_v2::cluster(const size_t max_iter, const double tol)
   const size_t work_group_size = q.get_device().get_info<info::device::max_work_group_size>();
   const size_t num_work_groups = (num_points + work_group_size - 1) / work_group_size;
 
-  const auto partial_sums_x = malloc_shared<double>(num_work_groups * num_centroids, q);
-  const auto partial_sums_y = malloc_shared<double>(num_work_groups * num_centroids, q);
-  const auto partial_counts = malloc_shared<size_t>(num_work_groups * num_centroids, q);
+  const auto partial_sums_x = malloc_device<double>(num_work_groups * num_centroids, q);
+  const auto partial_sums_y = malloc_device<double>(num_work_groups * num_centroids, q);
+  const auto partial_counts = malloc_device<size_t>(num_work_groups * num_centroids, q);
 
   assert(dev_points != nullptr);
   assert(dev_centroids != nullptr);
