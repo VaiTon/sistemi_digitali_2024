@@ -1,4 +1,4 @@
-build/
+build*/
 cmake-build-*/
 .venv/
 .cache/
@@ -6,3 +6,4 @@ output/
 
 .idea/
 data.csv
+CI

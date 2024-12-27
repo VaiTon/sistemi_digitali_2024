@@ -5,6 +5,7 @@
 #include <fmt/core.h>
 #include <iosfwd>
 #include <iostream>
+#include <omp.h>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -27,13 +28,13 @@ auto time_and_print(const std::string &name, T &km, size_t max_iter, double tol,
                     const long comp_time = 0, const size_t computation_units = 1)
     -> decltype(km.cluster(max_iter, tol), long()) {
 
-  logger::info() << fmt::format("{:60.60}", name);
+  logger::info() << fmt::format(" -> {:20.20}", name);
 
   const auto start_time = std::chrono::high_resolution_clock::now();
   try {
     km.cluster(max_iter, tol);
   } catch (const std::exception &e) {
-    std::cerr << "Exception: " << e.what() << std::endl;
+    logger::raw() << "Exception: " << e.what() << std::endl;
     return -1;
   }
   const auto end_time = std::chrono::high_resolution_clock::now();
@@ -41,28 +42,28 @@ auto time_and_print(const std::string &name, T &km, size_t max_iter, double tol,
   const long time =
       std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
 
-  std::cerr << fmt::format("time: {:6} ms", time) //
-            << fmt::format(", iterations: {:4}", km.get_iters());
+  logger::raw() << fmt::format("time: {:5} ms", time) //
+                << fmt::format(", iterations: {:3}", km.get_iters());
 
   if (comp_time > 0) {
     float speedup = static_cast<float>(comp_time) / static_cast<float>(time);
-    std::cerr << fmt::format(", speedup: {:5.2f}", speedup);
+    logger::raw() << fmt::format(", speedup: {:5.2f}", speedup);
 
     if (computation_units > 1) {
       float efficiency = speedup / static_cast<float>(computation_units);
 
-      std::cerr << fmt::format(", units: {:2}", computation_units) //
-                << fmt::format(", efficiency: {:5.2f}", efficiency);
+      logger::raw() << fmt::format(", units: {:2}", computation_units) //
+                    << fmt::format(", efficiency: {:4.2f}", efficiency);
     }
   }
 
-  std::cerr << std::endl;
+  logger::raw() << std::endl;
   return time;
 }
 
 int main(const int argc, char **argv) {
   if (argc < 3) {
-    std::cerr << "Usage: " << argv[0] << " <data.csv> <k>" << std::endl;
+    logger::raw() << "Usage: " << argv[0] << " <data.csv> <k>" << std::endl;
     return EXIT_FAILURE;
   }
 
@@ -85,6 +86,8 @@ int main(const int argc, char **argv) {
   }
 
   long ref_time;
+
+  logger::info() << "Running benchmarks" << std::endl;
 
   {
     auto kmeans = kmeans_cpu_v1{k, data};
@@ -114,7 +117,7 @@ int main(const int argc, char **argv) {
   }
   {
     auto kmeans = kmeans_ocv{k, data};
-    time_and_print("OpenCV Universal Intrinsics", kmeans, max_iter, tol, ref_time);
+    time_and_print("OpenCV UI", kmeans, max_iter, tol, ref_time);
   }
 
 #ifdef USE_CUDA
@@ -126,50 +129,59 @@ int main(const int argc, char **argv) {
 
   // with every device
   for (auto &device : devices) {
-    auto device_name = device.get_info<sycl::info::device::name>();
 
-    auto   queue         = sycl::queue{device};
-    size_t compute_units = device.get_info<sycl::info::device::max_compute_units>();
+    auto device_name   = device.get_info<sycl::info::device::name>();
+    auto compute_units = device.get_info<sycl::info::device::max_compute_units>();
+
+    logger::info() << "Running on SYCL: " << device_name << " with " << compute_units
+                   << " compute units" << std::endl;
+
+    auto queue = sycl::queue{device};
+
+    {
+      auto kmeans = kmeans_buf{queue, k, data};
+      time_and_print("BUF", kmeans, max_iter, tol, ref_time, compute_units);
+    }
 
     {
       auto kmeans = kmeans_usm_v1{queue, k, data};
-      time_and_print(device_name + " (USM, v1)", kmeans, max_iter, tol, ref_time, compute_units);
+      time_and_print("USMv1", kmeans, max_iter, tol, ref_time, compute_units);
     }
 
     {
       auto kmeans = kmeans_usm_v2{queue, k, data};
-      time_and_print(device_name + " (USM, v2)", kmeans, max_iter, tol, ref_time, compute_units);
+      time_and_print("USMv2", kmeans, max_iter, tol, ref_time, compute_units);
     }
     {
       auto kmeans = kmeans_usm_v3{queue, k, data};
 
-      time_and_print(device_name + " (USM, v3)", kmeans, max_iter, tol, ref_time, compute_units);
+      time_and_print("USMv3", kmeans, max_iter, tol, ref_time, compute_units);
     }
 
-    // {
-    //   auto kmeans = kmeans_buf{queue, k, data};
-    //   time_and_print(device_name + " (Buf)", kmeans, max_iter, tol, ref_time, compute_units);
-    // }
+    // === in-order queue ===
+    logger::info() << "Running on SYCL (in-order): " << device_name << " with " << compute_units
+                   << " compute units" << std::endl;
 
-    queue         = sycl::queue{device, sycl::property::queue::in_order{}};
-    compute_units = device.get_info<sycl::info::device::max_compute_units>();
+    queue = sycl::queue{device, sycl::property::queue::in_order{}};
+
+    {
+      auto kmeans = kmeans_buf{queue, k, data};
+      time_and_print("BUF", kmeans, max_iter, tol, ref_time, compute_units);
+    }
+
+    {
+      auto kmeans = kmeans_usm_v1{queue, k, data};
+      time_and_print("USMv1", kmeans, max_iter, tol, ref_time, compute_units);
+    }
 
     {
       auto kmeans = kmeans_usm_v2{queue, k, data};
-      time_and_print(device_name + " (USM, v2, in-order)", kmeans, max_iter, tol, ref_time,
-                     compute_units);
+      time_and_print("USMv2", kmeans, max_iter, tol, ref_time, compute_units);
     }
     {
       auto kmeans = kmeans_usm_v3{queue, k, data};
-      time_and_print(device_name + " (USM, v3, in-order)", kmeans, max_iter, tol, ref_time,
-                     compute_units);
+      time_and_print("USMv3", kmeans, max_iter, tol, ref_time, compute_units);
     }
-
-    // {
-    //   auto kmeans = kmeans_buf{queue, k, data};
-    //   time_and_print(device_name + " (Buf, in-order)", kmeans, max_iter, tol, ref_time,
-    //                  omp_get_max_threads());
-    // }
   }
 
   return EXIT_SUCCESS;

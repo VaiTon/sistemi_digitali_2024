@@ -26,8 +26,12 @@ kmeans_cluster_t kmeans_omp::cluster(const size_t max_iter, double tol) {
 
   for (iter = 0; iter < max_iter; iter++) {
 
-    // Assign each point to the "closest" centroid
+// Assign each point to the "closest" centroid
+#ifdef __INTEL_LLVM_COMPILER
+#pragma omp parallel for
+#else
 #pragma omp parallel for default(none) shared(points, centroids, assoc)
+#endif
     for (size_t p_idx = 0; p_idx < points.size(); p_idx++) {
       auto min_distance = std::numeric_limits<float>::max();
       auto min_idx      = size_t{0};

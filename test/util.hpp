@@ -5,11 +5,9 @@
 #include <iosfwd>
 #include <iostream>
 #include <istream>
-#include <vector>
-#include <iosfwd>
-#include <iostream>
 #include <ostream>
 #include <sstream>
+#include <vector>
 
 #include "kmeans.hpp"
 
@@ -48,6 +46,9 @@ public:
   static std::ostream &info() { return get()._output_stream << "-- "; }
   static std::ostream &warn() { return get()._output_stream << "!!: "; }
   static std::ostream &error() { return get()._output_stream << "ERROR: "; }
+  static std::ostream &debug() { return get()._output_stream << "DEBUG: "; }
+  static std::ostream &trace() { return get()._output_stream << "TRACE: "; }
+  static std::ostream &raw() { return get()._output_stream; }
 
 private:
   explicit logger(std::ostream &os) : _output_stream{os} {}

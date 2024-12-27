@@ -3,20 +3,25 @@
 #include "sycl_utils.hpp"
 
 #include <cstddef>
-#include <hipSYCL/sycl/usm.hpp>
+#include <cstdint>
 #include <vector>
 
 using namespace sycl;
 
-class assign_points_to_clusters_kernel_v1 {
+// to support FPGA devices (32-bit required for atomic operations)
+typedef uint32_t custom_size_t;
+
+namespace kernels::v1 {
+
+class assign_points_to_clusters {
   const point_t *points;
   const point_t *centroids;
   const size_t   num_centroids;
   size_t        *associations;
 
 public:
-  assign_points_to_clusters_kernel_v1(const point_t *points, const point_t *centroids,
-                                      const size_t num_centroids, size_t *associations)
+  assign_points_to_clusters(const point_t *points, const point_t *centroids,
+                            const size_t num_centroids, size_t *associations)
       : points(points), centroids(centroids), num_centroids(num_centroids),
         associations(associations) {}
 
@@ -37,7 +42,7 @@ public:
   }
 };
 
-class partial_reduction_kernel_v1 {
+class partial_reduction {
 
   // input
   const size_t   num_points;
@@ -45,13 +50,12 @@ class partial_reduction_kernel_v1 {
   const size_t  *associations;
 
   // output
-  point_t *new_centroids;
-  size_t  *new_clusters_size;
+  point_t       *new_centroids;
+  custom_size_t *new_clusters_size;
 
 public:
-  partial_reduction_kernel_v1(const size_t num_points, const point_t *points,
-                              const size_t *associations, point_t *new_centroids,
-                              size_t *new_clusters_size)
+  partial_reduction(const size_t num_points, const point_t *points, const size_t *associations,
+                    point_t *new_centroids, custom_size_t *new_clusters_size)
       : num_points(num_points), points(points), associations(associations),
         new_centroids(new_centroids), new_clusters_size(new_clusters_size) {}
 
@@ -77,21 +81,21 @@ public:
 
     atom_x += points[p_idx].x;
     atom_y += points[p_idx].y;
-    atom_c += size_t{1};
+    atom_c += custom_size_t{1};
   }
 };
 
-class final_reduction_kernel_v1 {
+class final_reduction {
   // input
-  const point_t *centroids;
-  const size_t  *new_clusters_size;
+  const point_t       *centroids;
+  const custom_size_t *new_clusters_size;
 
   // input-output
   point_t *new_centroids;
 
 public:
-  final_reduction_kernel_v1(const point_t *centroids, const size_t *new_clusters_size,
-                            point_t *new_centroids)
+  final_reduction(const point_t *centroids, const custom_size_t *new_clusters_size,
+                  point_t *new_centroids)
       : centroids(centroids), new_clusters_size(new_clusters_size), new_centroids(new_centroids) {}
 
   void operator()(const size_t cluster_idx) const {
@@ -110,18 +114,20 @@ public:
   }
 };
 
-class check_convergence_kernel_v1 {
+class check_convergence {
+
+  // input
   const size_t   num_centroids;
   const double   tol;
   const point_t *centroids;
   const point_t *new_centroids;
 
+  // output
   bool *converged;
 
 public:
-  check_convergence_kernel_v1(const size_t num_centroids, const double tol,
-                              const point_t *centroids, const point_t *new_centroids,
-                              bool *converged)
+  check_convergence(const size_t num_centroids, const double tol, const point_t *centroids,
+                    const point_t *new_centroids, bool *converged)
       : num_centroids(num_centroids), tol(tol), centroids(centroids), new_centroids(new_centroids),
         converged(converged) {}
 
@@ -142,10 +148,15 @@ public:
     *converged = conv; // access pointer one time
   }
 };
+} // namespace kernels::v1
 
 kmeans_cluster_t kmeans_usm_v1::cluster(const size_t max_iter, const double tol) {
-  const auto num_points    = points.size();
-  const auto num_centroids = this->num_centroids;
+  if (points.size() > UINT32_MAX) {
+    throw std::runtime_error("Only up to UINT32_MAX points are supported on this backend");
+  }
+
+  const size_t num_points    = points.size();
+  const size_t num_centroids = this->num_centroids;
 
   // Points
   const auto dev_points            = required_ptr(malloc_device<point_t>(points.size(), q));
@@ -153,7 +164,7 @@ kmeans_cluster_t kmeans_usm_v1::cluster(const size_t max_iter, const double tol)
   const auto dev_centroids         = required_ptr(malloc_device<point_t>(num_centroids, q));
   // Updated centroids after each iteration
   const auto dev_new_centroids     = required_ptr(malloc_device<point_t>(num_centroids, q));
-  const auto dev_new_clusters_size = required_ptr(malloc_device<size_t>(num_centroids, q));
+  const auto dev_new_clusters_size = required_ptr(malloc_device<custom_size_t>(num_centroids, q));
   // Association of each point to a cluster
   const auto dev_associations      = required_ptr(malloc_device<size_t>(points.size(), q));
   const auto converged             = required_ptr(malloc_host<bool>(1, q)); // Convergence flag
@@ -174,20 +185,24 @@ kmeans_cluster_t kmeans_usm_v1::cluster(const size_t max_iter, const double tol)
     // one
 
     {
-      auto kernel = assign_points_to_clusters_kernel_v1{dev_points, dev_centroids, num_centroids,
-                                                        dev_associations};
+      auto kernel = kernels::v1::assign_points_to_clusters{
+          dev_points,
+          dev_centroids,
+          num_centroids,
+          dev_associations,
+      };
       q.parallel_for(num_points, kernel).wait();
     }
 
     // Step 2: calculate new centroids by averaging the points in each cluster
     // Step 2.0: Initialize partial sums and counts
     q.fill(dev_new_centroids, point_t{0.0, 0.0}, num_centroids);
-    q.fill(dev_new_clusters_size, size_t{0}, num_centroids);
+    q.fill(dev_new_clusters_size, custom_size_t{0}, num_centroids);
     q.wait();
 
     // Step 2.1: Parallel reduction over points
     {
-      auto kernel = partial_reduction_kernel_v1{
+      auto kernel = kernels::v1::partial_reduction{
           num_points, dev_points, dev_associations, dev_new_centroids, dev_new_clusters_size,
       };
       q.parallel_for(num_points, kernel).wait();
@@ -195,7 +210,7 @@ kmeans_cluster_t kmeans_usm_v1::cluster(const size_t max_iter, const double tol)
 
     // Step 2.2: Final reduction and compute centroids
     {
-      auto kernel = final_reduction_kernel_v1{
+      auto kernel = kernels::v1::final_reduction{
           dev_centroids,
           dev_new_clusters_size,
           dev_new_centroids,
@@ -205,7 +220,7 @@ kmeans_cluster_t kmeans_usm_v1::cluster(const size_t max_iter, const double tol)
 
     // Step 3: Check for convergence
     {
-      auto kernel = check_convergence_kernel_v1{
+      auto kernel = kernels::v1::check_convergence{
           num_centroids, tol, dev_centroids, dev_new_centroids, converged,
       };
       q.single_task(kernel).wait();

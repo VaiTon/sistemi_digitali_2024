@@ -23,9 +23,10 @@ endif()
 
 if (KMEANS_USE_ONEAPI)
     find_package(IntelSYCL REQUIRED)
-    set(CMAKE_CXX_COMPILER icpx)
-    set(CMAKE_C_COMPILER icx)
     add_compile_options(-fsycl)
+    add_compile_options(-qopenmp)
+
+    message(STATUS "Using Intel SYCL")
 else ()
     find_package(AdaptiveCpp REQUIRED)
 

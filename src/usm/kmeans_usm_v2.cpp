@@ -65,8 +65,6 @@ struct partial_reduction_kernel_v2 {
     const auto atom_y = custom_atomic_ref(partial_sums_y[sums_idx]);
     const auto atom_c = custom_atomic_ref(partial_counts[sums_idx]);
 
-    namespace jit = AdaptiveCpp_jit;
-
     atom_x += static_cast<double>(points[p_idx].x);
     atom_y += static_cast<double>(points[p_idx].y);
     atom_c += size_t{1};
