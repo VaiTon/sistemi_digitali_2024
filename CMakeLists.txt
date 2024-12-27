@@ -6,20 +6,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-option(USE_ONEAPI "Use Intel SYCL implementation" OFF)
-option(USE_CUDA   "Use CUDA implementation" OFF)
+option(KMEANS_USE_ONEAPI "Use Intel SYCL implementation" OFF)
+option(KMEANS_USE_CUDA   "Use CUDA implementation" OFF)
 
 set(KMEANS_TEST_NUM_POINTS 1000000 CACHE STRING "Number of points to use in tests")
 set(KMEANS_TEST_NUM_CLUSTERS 128 CACHE STRING "Number of clusters to use in tests")
+set(KMEANS_CUDA_ARCH 75 CACHE STRING "CUDA architecture to use")
 
-if (USE_CUDA)
+if (KMEANS_USE_CUDA)
     add_compile_definitions(USE_CUDA)
+    set(CMAKE_CUDA_ARCHITECTURES ${KMEANS_CUDA_ARCH})
     enable_language(CUDA)
     message(STATUS "Using CUDA")
 endif()
 
 
-if (USE_ONEAPI)
+if (KMEANS_USE_ONEAPI)
     find_package(IntelSYCL REQUIRED)
     set(CMAKE_CXX_COMPILER icpx)
     set(CMAKE_C_COMPILER icx)

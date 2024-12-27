@@ -1,6 +1,7 @@
 #include "util.hpp"
 
 #include <cstdlib>
+#include <exception>
 #include <fmt/core.h>
 #include <iosfwd>
 #include <iostream>
@@ -29,7 +30,12 @@ auto time_and_print(const std::string &name, T &km, size_t max_iter, double tol,
   logger::info() << fmt::format("{:60.60}", name);
 
   const auto start_time = std::chrono::high_resolution_clock::now();
-  km.cluster(max_iter, tol);
+  try {
+    km.cluster(max_iter, tol);
+  } catch (const std::exception &e) {
+    std::cerr << "Exception: " << e.what() << std::endl;
+    return -1;
+  }
   const auto end_time = std::chrono::high_resolution_clock::now();
 
   const long time =

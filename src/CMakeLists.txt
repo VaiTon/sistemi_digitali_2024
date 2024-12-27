@@ -9,7 +9,7 @@ add_subdirectory(ocv)
 
 set(LIBRARIES kmeans-cpu kmeans-usm kmeans-buf kmeans-simd kmeans-omp kmeans-ocv)
 
-if (USE_CUDA)
+if (KMEANS_USE_CUDA)
     add_subdirectory(cuda)
 endif()
 
