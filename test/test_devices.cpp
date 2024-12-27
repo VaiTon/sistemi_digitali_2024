@@ -132,6 +132,11 @@ int main(const int argc, char **argv) {
     size_t compute_units = device.get_info<sycl::info::device::max_compute_units>();
 
     {
+      auto kmeans = kmeans_usm_v1{queue, k, data};
+      time_and_print(device_name + " (USM, v1)", kmeans, max_iter, tol, ref_time, compute_units);
+    }
+
+    {
       auto kmeans = kmeans_usm_v2{queue, k, data};
       time_and_print(device_name + " (USM, v2)", kmeans, max_iter, tol, ref_time, compute_units);
     }
