@@ -134,20 +134,6 @@ kmeans_cluster_t kmeans_cuda::cluster(const size_t max_iter, const double tol) {
 
   // copy points to device memory
   cuda_check(cuda_memcopy(dev_points, points.data(), num_points, cudaMemcpyHostToDevice));
-  {
-    cuda_check(cudaDeviceSynchronize());
-    ;
-    auto points_h = std::vector<point_t>(num_points);
-    cuda_check(cuda_memcopy(points_h.data(), dev_points, num_points, cudaMemcpyDeviceToHost));
-    cuda_check(cudaDeviceSynchronize());
-    ;
-
-    std::clog << "First 10 points:\n";
-    for (size_t i = 0; i < 10 && i < points_h.size(); i++) {
-      std::clog << "Point " << i << ": (" << points_h[i].x << ", " << points_h[i].y << ")\n";
-    }
-  }
-
   // consider the first k points as the initial centroids
   cuda_check(cuda_memcopy(dev_centroids, points.data(), num_centroids, cudaMemcpyHostToDevice));
   cuda_check(cudaMemset(dev_converged, false, sizeof(bool)));
@@ -166,9 +152,7 @@ kmeans_cluster_t kmeans_cuda::cluster(const size_t max_iter, const double tol) {
     {
       uint32_t block_size = 256;
       uint32_t grid_size  = (num_points + block_size - 1) / block_size;
-      std::clog << "cuda_assign_points_to_clusters<<<" << block_size << ", " << grid_size << ">>>("
-                << dev_points << ", " << num_points << ", " << dev_centroids << ", "
-                << num_centroids << ", " << dev_associations << ")\n";
+
       cuda_assign_points_to_clusters<<<block_size, grid_size>>>(
           dev_points, num_points, dev_centroids, num_centroids, dev_associations);
 
@@ -182,8 +166,6 @@ kmeans_cluster_t kmeans_cuda::cluster(const size_t max_iter, const double tol) {
       uint32_t block_size = (num_centroids < 256) ? num_centroids : 256;
       uint32_t grid_size  = (num_centroids + block_size - 1) / block_size;
 
-      std::clog << "running cuda_prep_new_centroids with block_size=" << block_size
-                << ", grid_size=" << grid_size << "\n";
       cuda_prep_new_centroids<<<block_size, grid_size>>>(num_centroids, dev_new_centroids,
                                                          dev_new_counts);
 
@@ -196,8 +178,6 @@ kmeans_cluster_t kmeans_cuda::cluster(const size_t max_iter, const double tol) {
       uint32_t block_size = 256;
       uint32_t grid_size  = (num_points + block_size - 1) / block_size;
 
-      std::clog << "running cuda_partial_reduction with block_size=" << block_size
-                << ", grid_size=" << grid_size << "\n";
       cuda_partial_reduction<<<block_size, grid_size>>>(dev_points, num_points, dev_associations,
                                                         dev_new_centroids, dev_new_counts);
       cuda_check(cudaDeviceSynchronize());
@@ -209,8 +189,6 @@ kmeans_cluster_t kmeans_cuda::cluster(const size_t max_iter, const double tol) {
       uint32_t block_size = (num_centroids < 256) ? num_centroids : 256;
       uint32_t grid_size  = (num_centroids + block_size - 1) / block_size;
 
-      std::clog << "running cuda_final_reduction with block_size=" << block_size
-                << ", grid_size=" << grid_size << "\n";
       cuda_final_reduction<<<block_size, grid_size>>>(dev_centroids, dev_new_centroids,
                                                       dev_new_counts);
 
@@ -220,7 +198,6 @@ kmeans_cluster_t kmeans_cuda::cluster(const size_t max_iter, const double tol) {
 
     // Step 3: Check for convergence
     {
-      std::clog << "running cuda_check_convergence\n";
       cuda_check_convergence<<<1, 1>>>(num_centroids, tol, dev_centroids, dev_new_centroids,
                                        dev_converged);
       cuda_check(cudaDeviceSynchronize());
