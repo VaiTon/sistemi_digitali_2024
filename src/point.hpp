@@ -8,9 +8,18 @@ struct point_t {
 
   [[nodiscard]] bool  is_zero() const;
   [[nodiscard]] float squared_distance(point_t const &rhs) const;
+  point_t             operator+(point_t const &rhs) const;
+  point_t            &operator+=(point_t const &rhs);
 };
 
-inline bool point_t::is_zero() const { return x == 0.0f && y == 0.0f; }
+inline bool    point_t::is_zero() const { return x == 0.0f && y == 0.0f; }
+inline point_t point_t::operator+(point_t const &rhs) const { return {x + rhs.x, y + rhs.y}; }
+
+inline point_t &point_t::operator+=(point_t const &rhs) {
+  x += rhs.x;
+  y += rhs.y;
+  return *this;
+}
 
 inline bool operator==(point_t const &lhs, point_t const &rhs) {
   return lhs.x == rhs.x && lhs.y == rhs.y;

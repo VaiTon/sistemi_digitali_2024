@@ -268,8 +268,9 @@ kmeans_cluster_t kmeans_usm_v3::cluster(size_t const max_iter, double const tol)
     // one
 
     // Step 2: calculate new centroids by averaging the points in each cluster
-    // HAHA: SE NON CASTIAMO A DOUBLE, IL RISULTATO E' SBAGLIATO (inferisce float)
-    q.fill(dev_assoc_matrix, point_t{0.0f, 0.0f}, assoc_matrix_size).wait();
+    // q.fill(dev_assoc_matrix, point_t{0.0f, 0.0f}, assoc_matrix_size).wait();
+    // xPres: .fill è lentissimo
+    q.memset(dev_assoc_array, 0, assoc_matrix_size * sizeof(point_t)).wait();
 
     q.submit([&](handler &h) {
        kernels::v3::assign_points_to_clusters const kernel{
@@ -279,32 +280,59 @@ kmeans_cluster_t kmeans_usm_v3::cluster(size_t const max_iter, double const tol)
        h.parallel_for(num_points, kernel);
      }).wait();
 
-    q.fill(dev_new_centroids, point_t{0.0f, 0.0f}, num_centroids);
-    q.fill(dev_new_clusters_size, size_t{0}, num_centroids);
+    // q.fill(dev_new_centroids, point_t{0.0f, 0.0f}, num_centroids);
+    q.memset(dev_new_clusters_size, 0, num_centroids * sizeof(point_t));
+    // q.fill(dev_new_clusters_size, size_t{0}, num_centroids);
+    q.memset(dev_new_centroids, 0, num_centroids * sizeof(point_t));
     q.wait();
 
     // Step 2.1: Parallel reduction over points
-    q.submit([&](handler &cgh) {
-       // every workgroup will reduce up to 1024 points
-       size_t const local_size = q.get_device().get_info<info::device::max_work_group_size>();
-       size_t const groups_per_centroid = (num_points + local_size - 1) / local_size;
+    // q.submit([&](handler &cgh) {
+    //    // every workgroup will reduce up to 1024 points
+    //    size_t const local_size = q.get_device().get_info<info::device::max_work_group_size>() /
+    //    8; size_t const groups_per_centroid = (num_points + local_size - 1) / local_size;
+    //
+    //    local_accessor<double, 1> const local_sums_x{local_size, cgh};
+    //    local_accessor<double, 1> const local_sums_y{local_size, cgh};
+    //    local_accessor<size_t, 1> const local_counts{local_size, cgh};
+    //
+    //    kernels::v3::reduce_to_centroids const kernel{
+    //        groups_per_centroid,   num_points,   dev_assoc_matrix, dev_new_centroids,
+    //        dev_new_clusters_size, local_sums_x, local_sums_y,     local_counts,
+    //    };
+    //
+    //    auto const total_groups = num_centroids * groups_per_centroid;
+    //
+    //    auto const global_size = total_groups * local_size;
+    //    auto const exec_range  = nd_range{range{global_size}, range{local_size}};
+    //
+    //    cgh.parallel_for(exec_range, kernel);
+    //  }).wait();
 
-       local_accessor<double, 1> const local_sums_x{local_size, cgh};
-       local_accessor<double, 1> const local_sums_y{local_size, cgh};
-       local_accessor<size_t, 1> const local_counts{local_size, cgh};
+    // Step 2.1: [ALTERNATIVE] For each centroid, submit a SYCL reduction kernel
+    for (size_t c_idx = 0; c_idx < num_centroids; c_idx++) {
+      q.submit([&](handler &cgh) {
+        size_t const assoc_cluster_offset = c_idx * num_points;
 
-       kernels::v3::reduce_to_centroids const kernel{
-           groups_per_centroid,   num_points,   dev_assoc_matrix, dev_new_centroids,
-           dev_new_clusters_size, local_sums_x, local_sums_y,     local_counts,
-       };
+        auto const centroid_red = reduction<point_t>(dev_new_centroids + c_idx, point_t{0.0f, 0.0f},
+                                                     sycl::plus<point_t>{});
+        auto const count_red =
+            reduction<size_t>(dev_new_clusters_size + c_idx, size_t{0}, sycl::plus<size_t>{});
 
-       auto const total_groups = num_centroids * groups_per_centroid;
+        auto reduction_func = [=](id<> const &p_idx, auto &centroid, auto &count) {
+          auto point = dev_assoc_matrix[assoc_cluster_offset + p_idx];
+          centroid += point;
 
-       auto const global_size = total_groups * local_size;
-       auto const exec_range  = nd_range{range{global_size}, range{local_size}};
+          if (!point.is_zero()) {
+            count += 1;
+          }
+        };
 
-       cgh.parallel_for(exec_range, kernel);
-     }).wait();
+        cgh.parallel_for(range{num_points}, centroid_red, count_red, reduction_func);
+      });
+    }
+
+    q.wait();
 
     // Step 2.2: Final reduction and compute centroids
     q.submit([&](handler &cgh) {
