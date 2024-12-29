@@ -14,23 +14,24 @@ typedef uint32_t custom_size_t;
 namespace kernels::v1 {
 
 class assign_points_to_clusters {
-  const point_t *points;
-  const point_t *centroids;
-  const size_t   num_centroids;
-  size_t        *associations;
+  point_t const *const points;
+  point_t const *const centroids;
+  size_t const         num_centroids;
+
+  size_t *associations;
 
 public:
-  assign_points_to_clusters(const point_t *points, const point_t *centroids,
-                            const size_t num_centroids, size_t *associations)
+  assign_points_to_clusters(point_t const *points, point_t const *centroids,
+                            size_t const num_centroids, size_t *associations)
       : points(points), centroids(centroids), num_centroids(num_centroids),
         associations(associations) {}
 
-  void operator()(const size_t p_idx) const {
+  void operator()(size_t const p_idx) const {
     auto   min_val = std::numeric_limits<double>::max();
     size_t min_idx = 0;
 
     for (size_t c_idx = 0; c_idx < num_centroids; c_idx++) {
-      const auto dist = squared_distance(points[p_idx], centroids[c_idx]);
+      auto const dist = squared_distance(points[p_idx], centroids[c_idx]);
 
       if (dist < min_val) {
         min_val = dist;
@@ -45,28 +46,28 @@ public:
 class partial_reduction {
 
   // input
-  const size_t   num_points;
-  const point_t *points;
-  const size_t  *associations;
+  size_t const   num_points;
+  point_t const *points;
+  size_t const  *associations;
 
   // output
   point_t       *new_centroids;
   custom_size_t *new_clusters_size;
 
 public:
-  partial_reduction(const size_t num_points, const point_t *points, const size_t *associations,
+  partial_reduction(size_t const num_points, point_t const *points, size_t const *associations,
                     point_t *new_centroids, custom_size_t *new_clusters_size)
       : num_points(num_points), points(points), associations(associations),
         new_centroids(new_centroids), new_clusters_size(new_clusters_size) {}
 
-  void operator()(const size_t p_idx) const {
+  void operator()(size_t const p_idx) const {
     if (p_idx >= num_points) {
       return; // Out-of-bounds guard
     }
 
-    const auto cluster_idx = associations[p_idx]; // Cluster index
+    auto const cluster_idx = associations[p_idx]; // Cluster index
 
-    const auto custom_atomic_ref = []<typename T>(T &ptr) {
+    auto const custom_atomic_ref = []<typename T>(T &ptr) {
       constexpr auto mem_order = memory_order::relaxed;
       constexpr auto mem_scope = memory_scope::device;
       constexpr auto mem_space = access::address_space::global_space;
@@ -75,9 +76,9 @@ public:
     };
 
     // Use atomic operations to update partial results
-    const auto atom_x = custom_atomic_ref(new_centroids[cluster_idx].x);
-    const auto atom_y = custom_atomic_ref(new_centroids[cluster_idx].y);
-    const auto atom_c = custom_atomic_ref(new_clusters_size[cluster_idx]);
+    auto const atom_x = custom_atomic_ref(new_centroids[cluster_idx].x);
+    auto const atom_y = custom_atomic_ref(new_centroids[cluster_idx].y);
+    auto const atom_c = custom_atomic_ref(new_clusters_size[cluster_idx]);
 
     atom_x += points[p_idx].x;
     atom_y += points[p_idx].y;
@@ -87,20 +88,20 @@ public:
 
 class final_reduction {
   // input
-  const point_t       *centroids;
-  const custom_size_t *new_clusters_size;
+  point_t const       *centroids;
+  custom_size_t const *new_clusters_size;
 
   // input-output
   point_t *new_centroids;
 
 public:
-  final_reduction(const point_t *centroids, const custom_size_t *new_clusters_size,
+  final_reduction(point_t const *centroids, custom_size_t const *new_clusters_size,
                   point_t *new_centroids)
       : centroids(centroids), new_clusters_size(new_clusters_size), new_centroids(new_centroids) {}
 
-  void operator()(const size_t cluster_idx) const {
+  void operator()(size_t const cluster_idx) const {
 
-    const auto cluster_points_count = new_clusters_size[cluster_idx];
+    auto const cluster_points_count = new_clusters_size[cluster_idx];
 
     if (cluster_points_count <= 0) {
       // No points in cluster, centroid remains unchanged
@@ -117,24 +118,24 @@ public:
 class check_convergence {
 
   // input
-  const size_t   num_centroids;
-  const double   tol;
-  const point_t *centroids;
-  const point_t *new_centroids;
+  size_t const   num_centroids;
+  double const   tol;
+  point_t const *centroids;
+  point_t const *new_centroids;
 
   // output
   bool *converged;
 
 public:
-  check_convergence(const size_t num_centroids, const double tol, const point_t *centroids,
-                    const point_t *new_centroids, bool *converged)
+  check_convergence(size_t const num_centroids, double const tol, point_t const *centroids,
+                    point_t const *new_centroids, bool *converged)
       : num_centroids(num_centroids), tol(tol), centroids(centroids), new_centroids(new_centroids),
         converged(converged) {}
 
   void operator()() const {
 
     // tolerance must be squared
-    const auto tol = this->tol * this->tol;
+    auto const tol = this->tol * this->tol;
 
     bool conv = true;
     for (size_t i = 0; i == 0 || i < num_centroids; i++) {
@@ -150,24 +151,24 @@ public:
 };
 } // namespace kernels::v1
 
-kmeans_cluster_t kmeans_usm_v1::cluster(const size_t max_iter, const double tol) {
+kmeans_cluster_t kmeans_usm_v1::cluster(size_t const max_iter, double const tol) {
   if (points.size() > UINT32_MAX) {
     throw std::runtime_error("Only up to UINT32_MAX points are supported on this backend");
   }
 
-  const size_t num_points    = points.size();
-  const size_t num_centroids = this->num_centroids;
+  size_t const num_points    = points.size();
+  size_t const num_centroids = this->num_centroids;
 
   // Points
-  const auto dev_points            = required_ptr(malloc_device<point_t>(points.size(), q));
+  auto const dev_points            = required_ptr(malloc_device<point_t>(points.size(), q));
   // Centroids
-  const auto dev_centroids         = required_ptr(malloc_device<point_t>(num_centroids, q));
+  auto const dev_centroids         = required_ptr(malloc_device<point_t>(num_centroids, q));
   // Updated centroids after each iteration
-  const auto dev_new_centroids     = required_ptr(malloc_device<point_t>(num_centroids, q));
-  const auto dev_new_clusters_size = required_ptr(malloc_device<custom_size_t>(num_centroids, q));
+  auto const dev_new_centroids     = required_ptr(malloc_device<point_t>(num_centroids, q));
+  auto const dev_new_clusters_size = required_ptr(malloc_device<custom_size_t>(num_centroids, q));
   // Association of each point to a cluster
-  const auto dev_associations      = required_ptr(malloc_device<size_t>(points.size(), q));
-  const auto converged             = required_ptr(malloc_host<bool>(1, q)); // Convergence flag
+  auto const dev_associations      = required_ptr(malloc_device<size_t>(points.size(), q));
+  auto const converged             = required_ptr(malloc_host<bool>(1, q)); // Convergence flag
 
   // copy points to device memory
   // consider the first k points as the initial centroids

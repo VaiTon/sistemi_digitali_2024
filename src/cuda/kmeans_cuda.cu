@@ -153,7 +153,7 @@ kmeans_cluster_t kmeans_cuda::cluster(const size_t max_iter, const double tol) {
       uint32_t block_size = 256;
       uint32_t grid_size  = (num_points + block_size - 1) / block_size;
 
-      cuda_assign_points_to_clusters<<<block_size, grid_size>>>(
+      cuda_assign_points_to_clusters<<<grid_size, block_size>>>(
           dev_points, num_points, dev_centroids, num_centroids, dev_associations);
 
       cuda_check(cudaDeviceSynchronize());
@@ -166,7 +166,7 @@ kmeans_cluster_t kmeans_cuda::cluster(const size_t max_iter, const double tol) {
       uint32_t block_size = (num_centroids < 256) ? num_centroids : 256;
       uint32_t grid_size  = (num_centroids + block_size - 1) / block_size;
 
-      cuda_prep_new_centroids<<<block_size, grid_size>>>(num_centroids, dev_new_centroids,
+      cuda_prep_new_centroids<<<grid_size, block_size>>>(num_centroids, dev_new_centroids,
                                                          dev_new_counts);
 
       cuda_check(cudaDeviceSynchronize());
@@ -178,7 +178,7 @@ kmeans_cluster_t kmeans_cuda::cluster(const size_t max_iter, const double tol) {
       uint32_t block_size = 256;
       uint32_t grid_size  = (num_points + block_size - 1) / block_size;
 
-      cuda_partial_reduction<<<block_size, grid_size>>>(dev_points, num_points, dev_associations,
+      cuda_partial_reduction<<<grid_size, block_size>>>(dev_points, num_points, dev_associations,
                                                         dev_new_centroids, dev_new_counts);
       cuda_check(cudaDeviceSynchronize());
       ;
@@ -189,7 +189,7 @@ kmeans_cluster_t kmeans_cuda::cluster(const size_t max_iter, const double tol) {
       uint32_t block_size = (num_centroids < 256) ? num_centroids : 256;
       uint32_t grid_size  = (num_centroids + block_size - 1) / block_size;
 
-      cuda_final_reduction<<<block_size, grid_size>>>(dev_centroids, dev_new_centroids,
+      cuda_final_reduction<<<grid_size, block_size>>>(dev_centroids, dev_new_centroids,
                                                       dev_new_counts);
 
       cuda_check(cudaDeviceSynchronize());

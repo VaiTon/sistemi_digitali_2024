@@ -1,24 +1,38 @@
 #include "kmeans_usm.hpp"
+#include "sycl_utils.hpp"
 
 #include <cstddef>
-#include <stdexcept>
 #include <vector>
 
 using namespace sycl;
 
-struct assign_points_to_clusters_kernel_v3 {
+namespace kernels::v3 {
 
-  const point_t *points;
-  const point_t *centroids;
-  const size_t   num_centroids;
-  size_t        *associations;
+class assign_points_to_clusters {
+  point_t const *const points;
+  size_t const         num_points;
 
-  void operator()(const size_t p_idx) const {
+  point_t const *const centroids;
+  size_t const         num_centroids;
+
+  point_t *const assoc_mtx; // associations matrix
+  size_t *const  assoc_arr; // associations array
+
+public:
+  assign_points_to_clusters(point_t const *centroids, size_t const num_centroids,
+                            point_t const *points, size_t const num_points,
+                            point_t *const assoc_mtx, size_t *const assoc_arr)
+      : points(points), num_points(num_points), centroids(centroids), num_centroids(num_centroids),
+        assoc_mtx(assoc_mtx), assoc_arr(assoc_arr) {}
+
+  void operator()(size_t const p_idx) const {
+    auto const point = points[p_idx];
+
     auto   min_val = std::numeric_limits<double>::max();
     size_t min_idx = 0;
 
     for (size_t c_idx = 0; c_idx < num_centroids; c_idx++) {
-      const auto dist = squared_distance(points[p_idx], centroids[c_idx]);
+      auto const dist = squared_distance(point, centroids[c_idx]);
 
       if (dist < min_val) {
         min_val = dist;
@@ -26,108 +40,163 @@ struct assign_points_to_clusters_kernel_v3 {
       }
     }
 
-    associations[p_idx] = min_idx;
+    // assoc_mtx is a matrix of size num_centroids x num_points
+    // every row represents a centroid
+    // every column represents a point
+    // row major order is used
+
+    auto const cluster_idx = min_idx;
+    auto const assoc_idx   = cluster_idx * num_points + p_idx;
+
+    assoc_mtx[assoc_idx] = point;
+    assoc_arr[p_idx]     = cluster_idx;
   }
 };
 
-struct partial_reduction_kernel_v3 {
+class reduce_to_centroids {
+  size_t const         groups_per_centroid_;
+  point_t const *const associations;
+  size_t const         num_points;
 
-  const size_t centroids_n;
-  const size_t points_n;
+  local_accessor<double, 1> const local_sums_x;
+  local_accessor<double, 1> const local_sums_y;
+  local_accessor<size_t, 1> const local_counts;
 
-  const point_t *points;
-  const size_t  *assoc;
+  // output
+  point_t *const global_centroids;
+  size_t *const  global_counts;
 
-  double *partial_sums_x;
-  double *partial_sums_y;
-  size_t *partial_counts;
+  static constexpr auto global_mem_order = memory_order::relaxed;
+  static constexpr auto global_mem_scope = memory_scope::device;
+  static constexpr auto global_mem_space = access::address_space::global_space;
 
-  void operator()(const nd_item<> &item) const {
-    const auto p_idx = item.get_global_id(0); // Point index
+  template <typename T>
+  using global_atomic_ref = atomic_ref<T, global_mem_order, global_mem_scope, global_mem_space>;
 
-    if (p_idx >= points_n) {
-      return; // Out-of-bounds guard
+public:
+  reduce_to_centroids(size_t const groups_per_centroid, size_t const num_points,
+                      point_t const *const associations, point_t *const global_centroids,
+                      size_t *const global_counts, local_accessor<double, 1> const &local_sums_x,
+                      local_accessor<double, 1> const &local_sums_y,
+                      local_accessor<size_t, 1> const &local_counts)
+      : groups_per_centroid_(groups_per_centroid), associations(associations),
+        num_points(num_points), local_sums_x(local_sums_x), local_sums_y(local_sums_y),
+        local_counts(local_counts), global_centroids(global_centroids),
+        global_counts(global_counts) {}
+
+  void operator()(nd_item<> const &item) const {
+
+    size_t const group_idx  = item.get_group(0);       // Workgroup index
+    size_t const group_size = item.get_local_range(0); // Workgroup size
+    size_t const item_idx   = item.get_local_id(0);    // Local index
+
+    // to which centroid does this workgroup belong? (matrix row)
+    auto const cluster_idx         = group_idx / groups_per_centroid_;
+    auto const threads_per_cluster = groups_per_centroid_ * group_size;
+
+    // which point does this thread process? (matrix column)
+    auto const p_idx            = group_idx % threads_per_cluster + item_idx;
+    // associations is a matrix of size num_centroids x num_points
+    // every row represents a centroid
+    // every column represents a point
+    // row major order is used
+    auto const global_assoc_idx = cluster_idx * num_points + p_idx; // Global association index
+
+    if (p_idx >= num_points) {
+      local_sums_x[item_idx] = 0.0;
+      local_sums_y[item_idx] = 0.0;
+      local_counts[item_idx] = 0;
+    } else {
+      // grazie ChatGPT
+      // copy every point to local memory
+      auto const assoc       = associations[global_assoc_idx];
+      local_sums_x[item_idx] = assoc.x;
+      local_sums_y[item_idx] = assoc.y;
+      local_counts[item_idx] = assoc.is_zero() ? 0 : 1;
     }
 
-    const auto wg_idx   = item.get_group(0);            // Workgroup index
-    const auto k_idx    = assoc[p_idx];                 // Cluster index
-    const auto sums_idx = wg_idx * centroids_n + k_idx; // Index in partial sums
+    // reduce via stride halving
+    for (size_t stride = group_size / 2; stride > 0; stride /= 2) {
+      item.barrier(access::fence_space::local_space);
 
-    const auto custom_atomic_ref = []<typename T>(T &ptr) {
-      constexpr auto mem_order = memory_order::relaxed;
-      constexpr auto mem_scope = memory_scope::device; // work_group is not supported for SM_35
-      constexpr auto mem_space = access::address_space::global_space;
+      if (item_idx < stride) {
+        auto const other_idx = item_idx + stride;
 
-      return atomic_ref<T, mem_order, mem_scope, mem_space>{ptr};
-    };
+        local_sums_x[item_idx] += local_sums_x[other_idx];
+        local_sums_y[item_idx] += local_sums_y[other_idx];
+        local_counts[item_idx] += local_counts[other_idx];
+      }
+    }
 
-    // Use atomic operations to update partial results
-    const auto atom_x = custom_atomic_ref(partial_sums_x[sums_idx]);
-    const auto atom_y = custom_atomic_ref(partial_sums_y[sums_idx]);
-    const auto atom_c = custom_atomic_ref(partial_counts[sums_idx]);
+    // write the result to global memory
+    if (item_idx == 0) {
+      global_atomic_ref<float> const  global_sums_x_ref{global_centroids[cluster_idx].x};
+      global_atomic_ref<float> const  global_sums_y_ref{global_centroids[cluster_idx].y};
+      global_atomic_ref<size_t> const global_counts_ref{global_counts[cluster_idx]};
 
-    atom_x += static_cast<double>(points[p_idx].x);
-    atom_y += static_cast<double>(points[p_idx].y);
-    atom_c += size_t{1};
+      auto const x = local_sums_x[0];
+      auto const y = local_sums_y[0];
+      auto const c = local_counts[0];
+
+      global_sums_x_ref += static_cast<float>(x);
+      global_sums_y_ref += static_cast<float>(y);
+      global_counts_ref += c;
+    }
   }
 };
 
-struct final_reduction_kernel_v3 {
-  size_t num_work_groups;
-  size_t k;
+class final_reduction {
+  size_t const *const  new_clusters_size;
+  point_t const *const centroids;
 
-  double *partial_sums_x;
-  double *partial_sums_y;
-  size_t *partial_counts;
+  point_t *const new_centroids;
 
-  point_t *new_centroids;
-  point_t *centroids;
+public:
+  final_reduction(point_t *const new_centroids, size_t const *const new_clusters_size,
+                  point_t const *const centroids)
+      : new_clusters_size(new_clusters_size), centroids(centroids), new_centroids(new_centroids) {}
 
-  void operator()(const size_t k_idx) const {
-    double final_x     = 0;
-    double final_y     = 0;
-    size_t final_count = 0;
+  void operator()(size_t const k_idx) const {
 
-    // Accumulate results from all workgroups
-    for (size_t wg = 0; wg < num_work_groups; ++wg) {
-      final_x += partial_sums_x[wg * k + k_idx];
-      final_y += partial_sums_y[wg * k + k_idx];
-      final_count += partial_counts[wg * k + k_idx];
-    }
+    auto const new_cluster_size = new_clusters_size[k_idx];
 
-    if (final_count <= 0) {
-      // No points in cluster, centroid remains unchanged
+    if (new_cluster_size == 0) {
+      // keep the old centroid
       new_centroids[k_idx] = centroids[k_idx];
       return;
     }
 
-    // Compute the final centroid
-    final_x /= static_cast<double>(final_count);
-    final_y /= static_cast<double>(final_count);
+    if (new_centroids[k_idx].is_zero()) {
+      return;
+    }
 
-    // Cast again to float
-    new_centroids[k_idx] = point_t{
-        .x = static_cast<float>(final_x),
-        .y = static_cast<float>(final_y),
-    };
+    // normalize the centroid
+    new_centroids[k_idx].x /= static_cast<float>(new_cluster_size);
+    new_centroids[k_idx].y /= static_cast<float>(new_cluster_size);
   }
 };
 
-struct check_convergence_kernel_v3 {
-  size_t k;
-  double tol;
+class check_convergence {
+  size_t const         num_centroids;
+  double const         tol;
+  point_t const *const centroids;
+  point_t const *const new_centroids;
 
-  bool    *converged;
-  point_t *centroids;
-  point_t *new_centroids;
+  bool *const converged;
+
+public:
+  check_convergence(point_t const *const centroids, size_t const num_centroids,
+                    point_t const *const new_centroids, double const tol, bool *const converged)
+      : num_centroids(num_centroids), tol(tol), centroids(centroids), new_centroids(new_centroids),
+        converged(converged) {}
 
   void operator()() const {
 
     // tolerance must be squared
-    const auto tol = this->tol * this->tol;
+    auto const tol = this->tol * this->tol;
 
     bool conv = true;
-    for (size_t i = 0; i == 0 || i < k; i++) {
+    for (size_t i = 0; i == 0 || i < num_centroids; i++) {
       conv &= squared_distance(centroids[i], new_centroids[i]) < tol;
 
       if (!conv) {
@@ -135,48 +204,53 @@ struct check_convergence_kernel_v3 {
       }
     }
 
-    *converged = conv;
+    *converged = conv; // access pointer one time
   }
 };
 
-kmeans_cluster_t kmeans_usm_v3::cluster(const size_t max_iter, const double tol) {
-  const auto num_points    = points.size();
-  const auto num_centroids = this->num_centroids;
+} // namespace kernels::v3
+
+/// @brief Check if the matrix has exactly one non-zero element per column.
+/// @throw std::runtime_error
+void check_sparse_matrix(point_t const *const matrix, size_t const rows, size_t const cols) {
+  for (size_t col = 0; col < cols; col++) {
+    size_t count = 0;
+    for (size_t row = 0; row < rows; row++) {
+      auto const idx = row * cols + col;
+      auto const p   = matrix[idx];
+      if (p.x != 0.0f || p.y != 0.0f) {
+        count++;
+      }
+    }
+
+    if (count != 1) {
+      throw std::runtime_error("Column " + std::to_string(col) + " has " + std::to_string(count) +
+                               " non-zero elements");
+    }
+  }
+}
+
+kmeans_cluster_t kmeans_usm_v3::cluster(size_t const max_iter, double const tol) {
+  auto const num_points    = points.size();
+  auto const num_centroids = this->num_centroids;
 
   // Points
-  const auto dev_points       = malloc_device<point_t>(points.size(), q);
-  // Centroids
-  const auto dev_centroids    = malloc_device<point_t>(num_centroids, q);
-  // Updated centroids after each iteration
-  const auto new_centroids_d  = malloc_device<point_t>(num_centroids, q);
-  // Association of each point to a cluster
-  const auto dev_associations = malloc_device<size_t>(points.size(), q);
-  const auto converged        = malloc_host<bool>(1, q); // Convergence flag
+  auto const dev_points    = required_ptr(malloc_device<point_t>(points.size(), q));
+  auto const dev_centroids = required_ptr(malloc_device<point_t>(num_centroids, q));
 
-  const size_t work_group_size = q.get_device().get_info<info::device::max_work_group_size>();
-  const size_t num_work_groups = (num_points + work_group_size - 1) / work_group_size;
+  // Associations
+  // every row represents a centroid
+  // every column represents a point
+  // row major order is used
+  // the matrix should be sparse
 
-  const auto partial_sums_x = malloc_shared<double>(num_work_groups * num_centroids, q);
-  const auto partial_sums_y = malloc_shared<double>(num_work_groups * num_centroids, q);
-  const auto partial_counts = malloc_shared<size_t>(num_work_groups * num_centroids, q);
+  auto const assoc_matrix_size = num_centroids * points.size();
+  auto const dev_assoc_matrix  = required_ptr(malloc_device<point_t>(assoc_matrix_size, q));
+  auto const dev_assoc_array   = required_ptr(malloc_device<size_t>(assoc_matrix_size, q));
 
-  assert(dev_points != nullptr);
-  assert(dev_centroids != nullptr);
-  assert(new_centroids_d != nullptr);
-  assert(dev_associations != nullptr);
-  assert(converged != nullptr);
-  assert(partial_sums_x != nullptr);
-  assert(partial_sums_y != nullptr);
-  assert(partial_counts != nullptr);
-
-  // Define the global and local ranges for the partial reduction kernel
-  auto partial_reduction_global_range = range{num_points};
-  if (num_points % work_group_size != 0) {
-    // the global range must be a multiple of the work group size
-    partial_reduction_global_range = range{(num_points / work_group_size + 1) * work_group_size};
-  }
-  const auto partial_reduction_execution_range =
-      nd_range{partial_reduction_global_range, range(work_group_size)};
+  auto const dev_new_centroids     = required_ptr(malloc_device<point_t>(num_centroids, q));
+  auto const dev_new_clusters_size = required_ptr(malloc_device<size_t>(num_centroids, q));
+  auto const converged             = required_ptr(malloc_host<bool>(1, q));
 
   // copy points to device memory
   // consider the first k points as the initial centroids
@@ -193,82 +267,95 @@ kmeans_cluster_t kmeans_usm_v3::cluster(const size_t max_iter, const double tol)
     // For each point, calculate the distance to each centroid and assign the point to the closest
     // one
 
-    {
-      auto kernel = assign_points_to_clusters_kernel_v3{
-          .points        = dev_points,
-          .centroids     = dev_centroids,
-          .num_centroids = num_centroids,
-          .associations  = dev_associations,
-      };
-      q.parallel_for(num_points, kernel).wait();
-    }
-
     // Step 2: calculate new centroids by averaging the points in each cluster
-    // HAHA: SE NON CASTIAMO A DOUBLE, IL RISULTATO E' SBAGLIATO
-    q.fill<double>(partial_sums_x, 0.0, num_work_groups * num_centroids);
-    q.fill<double>(partial_sums_y, 0.0, num_work_groups * num_centroids);
-    q.fill<size_t>(partial_counts, 0, num_work_groups * num_centroids);
+    // HAHA: SE NON CASTIAMO A DOUBLE, IL RISULTATO E' SBAGLIATO (inferisce float)
+    q.fill(dev_assoc_matrix, point_t{0.0f, 0.0f}, assoc_matrix_size).wait();
+
+    q.submit([&](handler &h) {
+       kernels::v3::assign_points_to_clusters const kernel{
+           dev_centroids, num_centroids, dev_points, num_points, dev_assoc_matrix, dev_assoc_array,
+       };
+
+       h.parallel_for(num_points, kernel);
+     }).wait();
+
+    q.fill(dev_new_centroids, point_t{0.0f, 0.0f}, num_centroids);
+    q.fill(dev_new_clusters_size, size_t{0}, num_centroids);
     q.wait();
 
     // Step 2.1: Parallel reduction over points
-    {
-      auto kernel = partial_reduction_kernel_v3{
-          num_centroids,  num_points,     dev_points,     dev_associations,
-          partial_sums_x, partial_sums_y, partial_counts,
-      };
-      q.parallel_for(partial_reduction_execution_range, kernel).wait();
-    }
+    q.submit([&](handler &cgh) {
+       // every workgroup will reduce up to 1024 points
+       size_t const local_size = q.get_device().get_info<info::device::max_work_group_size>();
+       size_t const groups_per_centroid = (num_points + local_size - 1) / local_size;
+
+       local_accessor<double, 1> const local_sums_x{local_size, cgh};
+       local_accessor<double, 1> const local_sums_y{local_size, cgh};
+       local_accessor<size_t, 1> const local_counts{local_size, cgh};
+
+       kernels::v3::reduce_to_centroids const kernel{
+           groups_per_centroid,   num_points,   dev_assoc_matrix, dev_new_centroids,
+           dev_new_clusters_size, local_sums_x, local_sums_y,     local_counts,
+       };
+
+       auto const total_groups = num_centroids * groups_per_centroid;
+
+       auto const global_size = total_groups * local_size;
+       auto const exec_range  = nd_range{range{global_size}, range{local_size}};
+
+       cgh.parallel_for(exec_range, kernel);
+     }).wait();
 
     // Step 2.2: Final reduction and compute centroids
-    {
-      auto kernel = final_reduction_kernel_v3{
-          num_work_groups, num_centroids,   partial_sums_x, partial_sums_y,
-          partial_counts,  new_centroids_d, dev_centroids,
-      };
-      q.parallel_for(num_centroids, kernel).wait();
-    }
+    q.submit([&](handler &cgh) {
+       kernels::v3::final_reduction const kernel{
+           dev_new_centroids,
+           dev_new_clusters_size,
+           dev_centroids,
+       };
+
+       cgh.parallel_for(num_centroids, kernel);
+     }).wait();
 
     // Step 3: Check for convergence
-    {
-      auto kernel = check_convergence_kernel_v3{num_centroids, tol, converged, dev_centroids,
-                                                new_centroids_d};
-      q.single_task(kernel).wait();
-    }
+    q.submit([&](handler &cgh) {
+       kernels::v3::check_convergence const kernel{
+           dev_centroids, num_centroids, dev_new_centroids, tol, converged,
+       };
+       cgh.single_task(kernel);
+     }).wait();
 
-    q.copy(new_centroids_d, dev_centroids, num_centroids).wait();
+    q.copy(dev_new_centroids, dev_centroids, num_centroids).wait();
 
     if (*converged) {
       break;
     }
   }
 
-  auto centroids_h    = std::vector<point_t>(num_centroids);
-  auto associations_h = std::vector<size_t>(points.size());
-  q.memcpy(centroids_h.data(), dev_centroids, num_centroids * sizeof(point_t));
-  q.memcpy(associations_h.data(), dev_associations, points.size() * sizeof(size_t));
+  auto host_centroids    = std::vector<point_t>(num_centroids);
+  auto host_associations = std::vector<size_t>(points.size());
+
+  q.copy<point_t>(dev_centroids, host_centroids.data(), num_centroids);
+  q.copy<size_t>(dev_assoc_array, host_associations.data(), points.size());
   q.wait();
 
-  auto clusters_h = std::vector<std::vector<point_t>>{centroids_h.size()};
-  for (auto &i : clusters_h) {
-    i = std::vector<point_t>{};
+  auto host_clusters = std::vector<std::vector<point_t>>{host_centroids.size()};
+  for (size_t cluster_idx = 0; cluster_idx < host_centroids.size(); cluster_idx++) {
+    host_clusters[cluster_idx] = std::vector<point_t>{};
   }
 
-  for (size_t i = 0; i < points.size(); i++) {
-    clusters_h[associations_h[i]].push_back(points[i]);
+  for (size_t point_idx = 0; point_idx < host_associations.size(); point_idx++) {
+    auto const cluster_idx = host_associations[point_idx];
+    host_clusters[cluster_idx].push_back(points[point_idx]);
   }
 
   // free memory
   sycl::free(dev_points, q);
   sycl::free(dev_centroids, q);
-  sycl::free(new_centroids_d, q);
-  sycl::free(dev_associations, q);
+  sycl::free(dev_new_centroids, q);
+  sycl::free(dev_assoc_matrix, q);
   sycl::free(converged, q);
-  sycl::free(partial_sums_x, q);
-  sycl::free(partial_sums_y, q);
-  sycl::free(partial_counts, q);
+  sycl::free(dev_new_clusters_size, q);
 
-  return kmeans_cluster_t{
-      .centroids = centroids_h,
-      .clusters  = clusters_h,
-  };
+  return kmeans_cluster_t{host_centroids, host_clusters};
 }
