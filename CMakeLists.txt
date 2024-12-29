@@ -11,7 +11,7 @@ option(KMEANS_USE_CUDA   "Use CUDA implementation" OFF)
 
 set(KMEANS_TEST_NUM_POINTS 1000000 CACHE STRING "Number of points to use in tests")
 set(KMEANS_TEST_NUM_CLUSTERS 128 CACHE STRING "Number of clusters to use in tests")
-set(KMEANS_CUDA_ARCH 750 CACHE STRING "CUDA architecture to use")
+set(KMEANS_CUDA_ARCH 75 CACHE STRING "CUDA architecture to use")
 
 if (KMEANS_USE_CUDA)
     add_compile_definitions(USE_CUDA)

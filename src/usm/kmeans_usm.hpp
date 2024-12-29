@@ -37,4 +37,12 @@ public:
   kmeans_cluster_t cluster(size_t max_iter, double tol) override;
 };
 
+class kmeans_usm_v4 final : public kmeans_usm {
+public:
+  kmeans_usm_v4(sycl::queue const &q, size_t const k, std::vector<point_t> const &points)
+      : kmeans_usm(q, k, points) {}
+
+  kmeans_cluster_t cluster(size_t max_iter, double tol) override;
+};
+
 #endif // KMEANS_USM_H

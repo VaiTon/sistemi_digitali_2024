@@ -6,7 +6,7 @@
 
 using namespace sycl;
 
-namespace kernels::v3 {
+namespace kernels::v4 {
 
 class assign_points_to_clusters {
   point_t const *const points;
@@ -208,7 +208,7 @@ public:
   }
 };
 
-} // namespace kernels::v3
+} // namespace kernels::v4
 
 /// @brief Check if the matrix has exactly one non-zero element per column.
 /// @throw std::runtime_error
@@ -230,7 +230,7 @@ void check_sparse_matrix(point_t const *const matrix, size_t const rows, size_t 
   }
 }
 
-kmeans_cluster_t kmeans_usm_v3::cluster(size_t const max_iter, double const tol) {
+kmeans_cluster_t kmeans_usm_v4::cluster(size_t const max_iter, double const tol) {
   auto const num_points    = points.size();
   auto const num_centroids = this->num_centroids;
 
@@ -273,7 +273,7 @@ kmeans_cluster_t kmeans_usm_v3::cluster(size_t const max_iter, double const tol)
     q.memset(dev_assoc_array, 0, assoc_matrix_size * sizeof(point_t)).wait();
 
     q.submit([&](handler &h) {
-       kernels::v3::assign_points_to_clusters const kernel{
+       kernels::v4::assign_points_to_clusters const kernel{
            dev_centroids, num_centroids, dev_points, num_points, dev_assoc_matrix, dev_assoc_array,
        };
 
@@ -286,34 +286,36 @@ kmeans_cluster_t kmeans_usm_v3::cluster(size_t const max_iter, double const tol)
     q.memset(dev_new_centroids, 0, num_centroids * sizeof(point_t));
     q.wait();
 
-    // Step 2.1: [ALTERNATIVE] For each centroid, submit a SYCL reduction kernel
-    for (size_t c_idx = 0; c_idx < num_centroids; c_idx++) {
-      q.submit([&](handler &cgh) {
-        size_t const assoc_cluster_offset = c_idx * num_points;
+    // Step 2.1: Parallel reduction over points
+    q.submit([&](handler &cgh) {
+       // every workgroup will reduce up to 1024 points
+       size_t const local_size = q.get_device().get_info<info::device::max_work_group_size>() /
+       8; size_t const groups_per_centroid = (num_points + local_size - 1) / local_size;
 
-        auto const centroid_red = reduction<point_t>(dev_new_centroids + c_idx, point_t{0.0f, 0.0f},
-                                                     sycl::plus<point_t>{});
-        auto const count_red =
-            reduction<size_t>(dev_new_clusters_size + c_idx, size_t{0}, sycl::plus<size_t>{});
+       local_accessor<double, 1> const local_sums_x{local_size, cgh};
+       local_accessor<double, 1> const local_sums_y{local_size, cgh};
+       local_accessor<size_t, 1> const local_counts{local_size, cgh};
 
-        auto reduction_func = [=](id<> const &p_idx, auto &centroid, auto &count) {
-          auto point = dev_assoc_matrix[assoc_cluster_offset + p_idx];
-          centroid += point;
+       kernels::v4::reduce_to_centroids const kernel{
+           groups_per_centroid,   num_points,   dev_assoc_matrix, dev_new_centroids,
+           dev_new_clusters_size, local_sums_x, local_sums_y,     local_counts,
+       };
 
-          if (!point.is_zero()) {
-            count += 1;
-          }
-        };
+       auto const total_groups = num_centroids * groups_per_centroid;
 
-        cgh.parallel_for(range{num_points}, centroid_red, count_red, reduction_func);
-      });
-    }
+       auto const global_size = total_groups * local_size;
+       auto const exec_range  = nd_range{range{global_size}, range{local_size}};
+
+       cgh.parallel_for(exec_range, kernel);
+     }).wait();
+
+
 
     q.wait();
 
     // Step 2.2: Final reduction and compute centroids
     q.submit([&](handler &cgh) {
-       kernels::v3::final_reduction const kernel{
+       kernels::v4::final_reduction const kernel{
            dev_new_centroids,
            dev_new_clusters_size,
            dev_centroids,
@@ -324,7 +326,7 @@ kmeans_cluster_t kmeans_usm_v3::cluster(size_t const max_iter, double const tol)
 
     // Step 3: Check for convergence
     q.submit([&](handler &cgh) {
-       kernels::v3::check_convergence const kernel{
+       kernels::v4::check_convergence const kernel{
            dev_centroids, num_centroids, dev_new_centroids, tol, converged,
        };
        cgh.single_task(kernel);
