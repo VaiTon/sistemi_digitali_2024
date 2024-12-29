@@ -210,26 +210,6 @@ public:
 
 } // namespace kernels::v3
 
-/// @brief Check if the matrix has exactly one non-zero element per column.
-/// @throw std::runtime_error
-void check_sparse_matrix(point_t const *const matrix, size_t const rows, size_t const cols) {
-  for (size_t col = 0; col < cols; col++) {
-    size_t count = 0;
-    for (size_t row = 0; row < rows; row++) {
-      auto const idx = row * cols + col;
-      auto const p   = matrix[idx];
-      if (p.x != 0.0f || p.y != 0.0f) {
-        count++;
-      }
-    }
-
-    if (count != 1) {
-      throw std::runtime_error("Column " + std::to_string(col) + " has " + std::to_string(count) +
-                               " non-zero elements");
-    }
-  }
-}
-
 kmeans_cluster_t kmeans_usm_v3::cluster(size_t const max_iter, double const tol) {
   auto const num_points    = points.size();
   auto const num_centroids = this->num_centroids;

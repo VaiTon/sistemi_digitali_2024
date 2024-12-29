@@ -166,9 +166,7 @@ public:
       return;
     }
 
-    if (new_centroids[k_idx].is_zero()) {
-      return;
-    }
+    assert(!new_centroids[k_idx].is_zero());
 
     // normalize the centroid
     new_centroids[k_idx].x /= static_cast<float>(new_cluster_size);
@@ -209,26 +207,6 @@ public:
 };
 
 } // namespace kernels::v4
-
-/// @brief Check if the matrix has exactly one non-zero element per column.
-/// @throw std::runtime_error
-void check_sparse_matrix(point_t const *const matrix, size_t const rows, size_t const cols) {
-  for (size_t col = 0; col < cols; col++) {
-    size_t count = 0;
-    for (size_t row = 0; row < rows; row++) {
-      auto const idx = row * cols + col;
-      auto const p   = matrix[idx];
-      if (p.x != 0.0f || p.y != 0.0f) {
-        count++;
-      }
-    }
-
-    if (count != 1) {
-      throw std::runtime_error("Column " + std::to_string(col) + " has " + std::to_string(count) +
-                               " non-zero elements");
-    }
-  }
-}
 
 kmeans_cluster_t kmeans_usm_v4::cluster(size_t const max_iter, double const tol) {
   auto const num_points    = points.size();
@@ -289,8 +267,8 @@ kmeans_cluster_t kmeans_usm_v4::cluster(size_t const max_iter, double const tol)
     // Step 2.1: Parallel reduction over points
     q.submit([&](handler &cgh) {
        // every workgroup will reduce up to 1024 points
-       size_t const local_size = q.get_device().get_info<info::device::max_work_group_size>() /
-       8; size_t const groups_per_centroid = (num_points + local_size - 1) / local_size;
+       size_t const local_size = q.get_device().get_info<info::device::max_work_group_size>() / 8;
+       size_t const groups_per_centroid = (num_points + local_size - 1) / local_size;
 
        local_accessor<double, 1> const local_sums_x{local_size, cgh};
        local_accessor<double, 1> const local_sums_y{local_size, cgh};
@@ -308,8 +286,6 @@ kmeans_cluster_t kmeans_usm_v4::cluster(size_t const max_iter, double const tol)
 
        cgh.parallel_for(exec_range, kernel);
      }).wait();
-
-
 
     q.wait();
 

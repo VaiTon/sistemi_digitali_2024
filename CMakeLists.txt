@@ -6,22 +6,26 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-option(KMEANS_USE_ONEAPI "Use Intel SYCL implementation" OFF)
-option(KMEANS_USE_CUDA   "Use CUDA implementation" OFF)
+option(KMEANS_ONEAPI "Use Intel SYCL implementation" OFF)
 
-set(KMEANS_TEST_NUM_POINTS 1000000 CACHE STRING "Number of points to use in tests")
-set(KMEANS_TEST_NUM_CLUSTERS 128 CACHE STRING "Number of clusters to use in tests")
+option(KMEANS_CUDA "Use CUDA implementation" OFF)
 set(KMEANS_CUDA_ARCH 75 CACHE STRING "CUDA architecture to use")
 
-if (KMEANS_USE_CUDA)
+option(KMEANS_USM "Use SYCL USM implementation" ON)
+option(KMEANS_BUFFER "Use SYCL buffer implementation" ON)
+option(KMEANS_OCV "Use OpenCV implementation" ON)
+option(KMEANS_SIMD "Use x86 SIMD implementation" ON)
+
+
+if (KMEANS_CUDA)
     add_compile_definitions(USE_CUDA)
     set(CMAKE_CUDA_ARCHITECTURES ${KMEANS_CUDA_ARCH})
     enable_language(CUDA)
     message(STATUS "Using CUDA")
-endif()
+endif ()
 
 
-if (KMEANS_USE_ONEAPI)
+if (KMEANS_ONEAPI)
     find_package(IntelSYCL REQUIRED)
     add_compile_options(-fsycl)
     add_compile_options(-qopenmp)
@@ -61,17 +65,17 @@ add_executable(test-devices test/test_devices.cpp test/util.hpp)
 
 target_link_libraries(test-devices PRIVATE OpenMP::OpenMP_CXX)
 target_link_libraries(test-devices PRIVATE fmt::fmt)
-target_link_libraries(test-devices PRIVATE ${LIBRARIES})
+target_link_libraries(test-devices PRIVATE ${BACKENDS})
 add_sycl_to_target(TARGET test-devices)
 
 add_executable(test-correctness test/test_correctness.cpp test/util.hpp)
 target_link_libraries(test-correctness PRIVATE fmt::fmt)
-target_link_libraries(test-correctness PRIVATE ${LIBRARIES})
+target_link_libraries(test-correctness PRIVATE ${BACKENDS})
 add_sycl_to_target(TARGET test-correctness)
 
 add_executable(test-results test/test_results.cpp test/util.hpp)
 target_link_libraries(test-correctness PRIVATE fmt::fmt)
-target_link_libraries(test-results PRIVATE ${LIBRARIES})
+target_link_libraries(test-results PRIVATE ${BACKENDS})
 add_sycl_to_target(TARGET test-results)
 
 

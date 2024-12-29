@@ -106,6 +106,10 @@ int main(const int argc, char **argv) {
     auto kmeans = kmeans_usm_v3{q, k, data};
     test("USM v3", output_dir + "/usm_v3.json", kmeans, max_iter, tol);
   }
+  {
+    auto kmeans = kmeans_usm_v4{q, k, data};
+    test("USM v4", output_dir + "/usm_v4.json", kmeans, max_iter, tol);
+  }
 
   {
     auto kmeans = kmeans_buf{q, k, data};
