@@ -128,10 +128,12 @@ int main(int const argc, char **argv) {
 #endif
 
   auto test_sycl = [&](const sycl::queue &q, const size_t compute_units) {
+#ifndef USE_CUDA // Issue with CUDA and SYCL buffers
     {
       auto kmeans = kmeans_buf{q, k, data};
       time_and_print("BUF", kmeans, max_iter, tol, ref_time, compute_units);
     }
+#endif
 
     {
       auto kmeans = kmeans_usm_v1{q, k, data};
@@ -142,6 +144,7 @@ int main(int const argc, char **argv) {
       auto kmeans = kmeans_usm_v2{q, k, data};
       time_and_print("USMv2", kmeans, max_iter, tol, ref_time, compute_units);
     }
+
     {
       auto kmeans = kmeans_usm_v3{q, k, data};
       time_and_print("USMv3", kmeans, max_iter, tol, ref_time, compute_units);
