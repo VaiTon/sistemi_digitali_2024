@@ -54,6 +54,13 @@ class partial_reduction {
   point_t       *new_centroids;
   custom_size_t *new_clusters_size;
 
+  static constexpr auto dev_mem_order = memory_order::relaxed;
+  static constexpr auto dev_mem_scope = memory_scope::device;
+  static constexpr auto dev_mem_space = access::address_space::global_space;
+
+  template <typename T>
+  using atomic_ref_t = atomic_ref<T, dev_mem_order, dev_mem_scope, dev_mem_space>;
+
 public:
   partial_reduction(size_t const num_points, point_t const *points, size_t const *associations,
                     point_t *new_centroids, custom_size_t *new_clusters_size)
@@ -67,18 +74,10 @@ public:
 
     auto const cluster_idx = associations[p_idx]; // Cluster index
 
-    auto const custom_atomic_ref = []<typename T>(T &ptr) {
-      constexpr auto mem_order = memory_order::relaxed;
-      constexpr auto mem_scope = memory_scope::device;
-      constexpr auto mem_space = access::address_space::global_space;
-
-      return atomic_ref<T, mem_order, mem_scope, mem_space>{ptr};
-    };
-
     // Use atomic operations to update partial results
-    auto const atom_x = custom_atomic_ref(new_centroids[cluster_idx].x);
-    auto const atom_y = custom_atomic_ref(new_centroids[cluster_idx].y);
-    auto const atom_c = custom_atomic_ref(new_clusters_size[cluster_idx]);
+    atomic_ref_t<float> const         atom_x(new_centroids[cluster_idx].x);
+    atomic_ref_t<float> const         atom_y(new_centroids[cluster_idx].y);
+    atomic_ref_t<custom_size_t> const atom_c(new_clusters_size[cluster_idx]);
 
     atom_x += points[p_idx].x;
     atom_y += points[p_idx].y;
