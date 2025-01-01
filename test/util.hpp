@@ -8,10 +8,11 @@
 #include <ostream>
 #include <sstream>
 #include <vector>
+#include <fmt/format.h>
 
 #include "kmeans.hpp"
 
-inline std::vector<point_t> get_data(const std::string &filename) {
+inline std::vector<point_t> get_data(std::string const &filename) {
   auto data       = std::vector<point_t>{};
   auto input_file = std::ifstream{filename};
 
@@ -55,7 +56,7 @@ private:
   std::ostream &_output_stream;
 };
 
-template <typename T> std::ostream &operator<<(std::ostream &os, const std::vector<T> &p) {
+template <typename T> std::ostream &operator<<(std::ostream &os, std::vector<T> const &p) {
   os << "[";
   for (size_t i = 0; i < p.size(); i++) {
     if (i > 0) {

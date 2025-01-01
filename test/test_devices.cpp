@@ -25,7 +25,8 @@
 
 template <typename T>
 auto time_and_print(std::string const &name, T &km, size_t max_iter, double tol,
-                    long const comp_time = 0, size_t const computation_units = 1)
+                    size_t const data_size, long const comp_time = 0,
+                    size_t const computation_units = 1)
     -> decltype(km.cluster(max_iter, tol), long()) {
 
   logger::info() << fmt::format(" -> {:20.20}", name);
@@ -42,11 +43,15 @@ auto time_and_print(std::string const &name, T &km, size_t max_iter, double tol,
   long const time =
       std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
 
+  auto const throughput = static_cast<float>(data_size) * 1e3 / static_cast<float>(time);
+
   logger::raw() << fmt::format("time: {:5} ms", time) //
-                << fmt::format(", iterations: {:3}", km.get_iters());
+                << fmt::format(", iterations: {:3}", km.get_iters())
+                << fmt::format(", throughput: {:5.2f} GB/s", throughput / 1e6);
 
   if (comp_time > 0) {
     float speedup = static_cast<float>(comp_time) / static_cast<float>(time);
+
     logger::raw() << fmt::format(", speedup: {:5.2f}", speedup);
 
     if (computation_units > 1) {
@@ -89,35 +94,37 @@ int main(int const argc, char **argv) {
 
   logger::info() << "Running benchmarks" << std::endl;
 
+  size_t const data_size = data.size() * sizeof(point_t);
+
   {
     auto kmeans = kmeans_cpu_v1{k, data};
-    ref_time    = time_and_print("CPU (v1)", kmeans, max_iter, tol);
+    ref_time    = time_and_print("CPU (v1)", kmeans, max_iter, tol, data_size);
   }
   {
     auto kmeans = kmeans_cpu_v2{k, data};
-    time_and_print("CPU (v2)", kmeans, max_iter, tol, ref_time);
+    time_and_print("CPU (v2)", kmeans, max_iter, tol, data_size, ref_time);
   }
   {
     auto const max_threads = omp_get_max_threads();
     omp_set_num_threads(1);
     {
       auto kmeans = kmeans_omp{k, data};
-      time_and_print("OpenMP", kmeans, max_iter, tol, ref_time, omp_get_max_threads());
+      time_and_print("OpenMP", kmeans, max_iter, tol, data_size, ref_time, omp_get_max_threads());
     }
 
     omp_set_num_threads(max_threads);
     {
       auto kmeans = kmeans_omp{k, data};
-      time_and_print("OpenMP", kmeans, max_iter, tol, ref_time, omp_get_max_threads());
+      time_and_print("OpenMP", kmeans, max_iter, tol, data_size, ref_time, omp_get_max_threads());
     }
   }
   {
     auto kmeans = kmeans_simd{k, data};
-    time_and_print("CPU (SIMD)", kmeans, max_iter, tol, ref_time);
+    time_and_print("CPU (SIMD)", kmeans, max_iter, tol, data_size, ref_time);
   }
   {
     auto kmeans = kmeans_ocv{k, data};
-    time_and_print("OpenCV UI", kmeans, max_iter, tol, ref_time);
+    time_and_print("OpenCV UI", kmeans, max_iter, tol, data_size, ref_time);
   }
 
 #ifdef USE_CUDA
@@ -131,27 +138,27 @@ int main(int const argc, char **argv) {
 #ifndef USE_CUDA // Issue with CUDA and SYCL buffers
     {
       auto kmeans = kmeans_buf{q, k, data};
-      time_and_print("BUF", kmeans, max_iter, tol, ref_time, compute_units);
+      time_and_print("BUF", kmeans, max_iter, tol, data_size, ref_time, compute_units);
     }
 #endif
 
     {
       auto kmeans = kmeans_usm_v1{q, k, data};
-      time_and_print("USMv1", kmeans, max_iter, tol, ref_time, compute_units);
+      time_and_print("USMv1", kmeans, max_iter, tol, data_size, ref_time, compute_units);
     }
 
     {
       auto kmeans = kmeans_usm_v2{q, k, data};
-      time_and_print("USMv2", kmeans, max_iter, tol, ref_time, compute_units);
+      time_and_print("USMv2", kmeans, max_iter, tol, data_size, ref_time, compute_units);
     }
 
     {
       auto kmeans = kmeans_usm_v3{q, k, data};
-      time_and_print("USMv3", kmeans, max_iter, tol, ref_time, compute_units);
+      time_and_print("USMv3", kmeans, max_iter, tol, data_size, ref_time, compute_units);
     }
     {
       auto kmeans = kmeans_usm_v4{q, k, data};
-      time_and_print("USMv4", kmeans, max_iter, tol, ref_time, compute_units);
+      time_and_print("USMv4", kmeans, max_iter, tol, data_size, ref_time, compute_units);
     }
   };
 
