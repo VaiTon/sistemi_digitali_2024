@@ -17,6 +17,7 @@
 #include "ocv/kmeans_ocv.hpp"
 #include "omp/kmeans_omp.hpp"
 #include "simd/kmeans_simd.hpp"
+#include "tbb/kmeans_tbb.hpp"
 #include "usm/kmeans_usm.hpp"
 
 #ifdef USE_CUDA
@@ -68,7 +69,7 @@ auto time_and_print(std::string const &name, T &km, size_t max_iter, double tol,
 int main(int const argc, char **argv) {
 
   auto const types =
-      std::vector<std::string>{"cpu", "omp", "simd", "ocv", "cuda", "sycl", "sycl-inorder"};
+      std::vector<std::string>{"cpu", "omp", "tbb", "simd", "ocv", "cuda", "sycl", "sycl-inorder"};
 
   if (argc < 3) {
     logger::raw() << "Usage: " << argv[0]
@@ -85,7 +86,7 @@ int main(int const argc, char **argv) {
   if (argc == 4) {
     run_type = argv[3];
     std::transform(run_type.begin(), run_type.end(), run_type.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
+                   [](unsigned char const c) { return std::tolower(c); });
   }
 
   if (!run_type.empty() && std::find(types.begin(), types.end(), run_type) == types.end()) {
@@ -138,6 +139,12 @@ int main(int const argc, char **argv) {
     {
       auto kmeans = kmeans_omp{k, data};
       time_and_print("OpenMP", kmeans, max_iter, tol, data_size, ref_time, omp_get_max_threads());
+    }
+  }
+  if (run_type.empty() || run_type == "tbb") {
+    {
+      auto kmeans = kmeans_tbb{k, data};
+      time_and_print("TBB", kmeans, max_iter, tol, data_size, ref_time);
     }
   }
   if (run_type.empty() || run_type == "simd") {

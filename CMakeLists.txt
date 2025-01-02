@@ -15,6 +15,7 @@ option(KMEANS_USM "Use SYCL USM implementation" ON)
 option(KMEANS_BUFFER "Use SYCL buffer implementation" ON)
 option(KMEANS_OCV "Use OpenCV implementation" ON)
 option(KMEANS_SIMD "Use x86 SIMD implementation" ON)
+option(KMEANS_TBB "Use TBB implementation" ON)
 
 
 if (KMEANS_CUDA)
