@@ -29,8 +29,6 @@ auto time_and_print(std::string const &name, T &km, size_t max_iter, double tol,
                     size_t const computation_units = 0)
     -> decltype(km.cluster(max_iter, tol), long()) {
 
-  logger::info() << fmt::format(" -> {:20.20}", name);
-
   auto const start_time = std::chrono::high_resolution_clock::now();
   try {
     km.cluster(max_iter, tol);
@@ -45,9 +43,10 @@ auto time_and_print(std::string const &name, T &km, size_t max_iter, double tol,
 
   auto const throughput = static_cast<float>(data_size) * 1e3 / static_cast<float>(time);
 
-  logger::raw() << fmt::format("time: {:5} ms", time) //
-                << fmt::format(", iterations: {:3}", km.get_iters())
-                << fmt::format(", throughput: {:5.2f} GB/s", throughput / 1e6);
+  logger::info() << fmt::format(" -> {:20.20}", name)  //
+                 << fmt::format("time: {:5} ms", time) //
+                 << fmt::format(", iterations: {:3}", km.get_iters())
+                 << fmt::format(", throughput: {:5.2f} GB/s", throughput / 1e6);
 
   if (comp_time > 0) {
     float speedup = static_cast<float>(comp_time) / static_cast<float>(time);
