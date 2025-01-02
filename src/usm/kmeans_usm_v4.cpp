@@ -106,8 +106,10 @@ public:
       local_sums_x[item_idx] = 0.0;
       local_sums_y[item_idx] = 0.0;
       local_counts[item_idx] = 0;
-    } else {
       // grazie ChatGPT
+      // return;
+    } else {
+
       // copy every point to local memory
       auto const assoc       = associations[global_assoc_idx];
       local_sums_x[item_idx] = assoc.x;

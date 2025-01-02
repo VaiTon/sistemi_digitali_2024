@@ -26,7 +26,7 @@
 template <typename T>
 auto time_and_print(std::string const &name, T &km, size_t max_iter, double tol,
                     size_t const data_size, long const comp_time = 0,
-                    size_t const computation_units = 1)
+                    size_t const computation_units = 0)
     -> decltype(km.cluster(max_iter, tol), long()) {
 
   logger::info() << fmt::format(" -> {:20.20}", name);
@@ -54,7 +54,7 @@ auto time_and_print(std::string const &name, T &km, size_t max_iter, double tol,
 
     logger::raw() << fmt::format(", speedup: {:5.2f}", speedup);
 
-    if (computation_units > 1) {
+    if (computation_units > 0) {
       float efficiency = speedup / static_cast<float>(computation_units);
 
       logger::raw() << fmt::format(", units: {:2}", computation_units) //
@@ -67,8 +67,35 @@ auto time_and_print(std::string const &name, T &km, size_t max_iter, double tol,
 }
 
 int main(int const argc, char **argv) {
+
+  auto const types =
+      std::vector<std::string>{"cpu", "omp", "simd", "ocv", "cuda", "sycl", "sycl-inorder"};
+
   if (argc < 3) {
-    logger::raw() << "Usage: " << argv[0] << " <data.csv> <k>" << std::endl;
+    logger::raw() << "Usage: " << argv[0]
+                  << " <data.csv> <k> [type]\n"
+                     "  type: ";
+    for (auto const &t : types) {
+      logger::raw() << t << " ";
+    }
+    logger::raw() << std::endl;
+    return EXIT_FAILURE;
+  }
+
+  auto run_type = std::string{};
+  if (argc == 4) {
+    run_type = argv[3];
+    std::transform(run_type.begin(), run_type.end(), run_type.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+  }
+
+  if (!run_type.empty() && std::find(types.begin(), types.end(), run_type) == types.end()) {
+    logger::error() << "Invalid type: " << run_type << std::endl;
+    logger::error() << "Valid types: ";
+    for (auto const &t : types) {
+      logger::raw() << t << " ";
+    }
+    logger::raw() << std::endl;
     return EXIT_FAILURE;
   }
 
@@ -79,37 +106,33 @@ int main(int const argc, char **argv) {
   auto const k              = static_cast<size_t>(std::stoi(argv[2]));
 
   // read data from csv file
-  auto const data = get_data(input_filename);
-  logger::info() << "Data size: " << data.size() << std::endl;
+  auto const   data      = get_data(input_filename);
+  size_t const data_size = data.size() * sizeof(point_t);
 
-  auto devices = sycl::device::get_devices();
-  logger::info() << "Found " << devices.size() << " devices" << std::endl;
-  for (auto const &device : devices) {
-    auto dev_name   = device.get_info<sycl::info::device::name>();
-    auto dev_vendor = device.get_info<sycl::info::device::vendor>();
-    logger::info() << "  " << dev_name << " (" << dev_vendor << ")" << std::endl;
-  }
+  logger::info() << "Data size: " << data.size() << " (" << static_cast<double>(data_size) / 1e6
+                 << " MB), clusters: " << k << std::endl;
 
   long ref_time;
 
-  logger::info() << "Running benchmarks" << std::endl;
-
-  size_t const data_size = data.size() * sizeof(point_t);
+  logger::info() << "Running benchmarks..." << "\n";
 
   {
+    // run CPU version to get baseline
     auto kmeans = kmeans_cpu_v1{k, data};
     ref_time    = time_and_print("CPU (v1)", kmeans, max_iter, tol, data_size);
   }
-  {
+
+  if (run_type.empty() || run_type == "cpu") {
     auto kmeans = kmeans_cpu_v2{k, data};
     time_and_print("CPU (v2)", kmeans, max_iter, tol, data_size, ref_time);
   }
-  {
+  if (run_type.empty() || run_type == "omp") {
     auto const max_threads = omp_get_max_threads();
     omp_set_num_threads(1);
     {
       auto kmeans = kmeans_omp{k, data};
-      time_and_print("OpenMP", kmeans, max_iter, tol, data_size, ref_time, omp_get_max_threads());
+      time_and_print("OpenMP 1 Th", kmeans, max_iter, tol, data_size, ref_time,
+                     omp_get_max_threads());
     }
 
     omp_set_num_threads(max_threads);
@@ -118,23 +141,29 @@ int main(int const argc, char **argv) {
       time_and_print("OpenMP", kmeans, max_iter, tol, data_size, ref_time, omp_get_max_threads());
     }
   }
-  {
-    auto kmeans = kmeans_simd{k, data};
-    time_and_print("CPU (SIMD)", kmeans, max_iter, tol, data_size, ref_time);
-  }
-  {
-    auto kmeans = kmeans_ocv{k, data};
-    time_and_print("OpenCV UI", kmeans, max_iter, tol, data_size, ref_time);
+  if (run_type.empty() || run_type == "simd") {
+    {
+      auto kmeans = kmeans_simd{k, data};
+      time_and_print("CPU (SIMD)", kmeans, max_iter, tol, data_size, ref_time);
+    }
+    {
+      auto kmeans = kmeans_ocv{k, data};
+      time_and_print("OpenCV UI", kmeans, max_iter, tol, data_size, ref_time);
+    }
   }
 
+  if (run_type.empty() || run_type == "cuda") {
 #ifdef USE_CUDA
-  {
-    auto kmeans = kmeans_cuda{k, data};
-    time_and_print("CUDA", kmeans, max_iter, tol, ref_time);
-  }
+    {
+      auto kmeans = kmeans_cuda{k, data};
+      time_and_print("CUDA", kmeans, max_iter, tol, ref_time);
+    }
+#else
+    logger::error() << "Compiled without CUDA support" << std::endl;
 #endif
+  }
 
-  auto test_sycl = [&](const sycl::queue &q, const size_t compute_units) {
+  auto test_sycl = [&](sycl::queue const &q, size_t const compute_units) {
 #ifndef USE_CUDA // Issue with CUDA and SYCL buffers
     {
       auto kmeans = kmeans_buf{q, k, data};
@@ -162,23 +191,28 @@ int main(int const argc, char **argv) {
     }
   };
 
-  // with every device
-  for (auto &device : devices) {
+  if (run_type.empty() || run_type == "sycl") {
 
-    auto const device_name   = device.get_info<sycl::info::device::name>();
-    auto const compute_units = device.get_info<sycl::info::device::max_compute_units>();
+    auto queue = sycl::queue{};
+
+    auto const device_name   = queue.get_device().get_info<sycl::info::device::name>();
+    auto const compute_units = queue.get_device().get_info<sycl::info::device::max_compute_units>();
 
     logger::info() << "Running on SYCL: " << device_name << " with " << compute_units
                    << " compute units" << std::endl;
 
-    auto queue = sycl::queue{device};
     test_sycl(queue, compute_units);
+  }
+  if (run_type.empty() || run_type == "sycl-inorder") {
 
-    // === in-order queue ===
+    auto queue = sycl::queue{sycl::property::queue::in_order{}};
+
+    auto const device_name   = queue.get_device().get_info<sycl::info::device::name>();
+    auto const compute_units = queue.get_device().get_info<sycl::info::device::max_compute_units>();
+
     logger::info() << "Running on SYCL (in-order): " << device_name << " with " << compute_units
                    << " compute units" << std::endl;
 
-    queue = sycl::queue{device, sycl::property::queue::in_order{}};
     test_sycl(queue, compute_units);
   }
 

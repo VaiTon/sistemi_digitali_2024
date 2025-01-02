@@ -21,7 +21,7 @@ public:
         associations(associations) {}
 
   void operator()(const size_t p_idx) const {
-    auto   min_val = std::numeric_limits<double>::max();
+    auto   min_val = std::numeric_limits<double>::max(); // TODO: change to float after profiling
     size_t min_idx = 0;
 
     for (size_t c_idx = 0; c_idx < num_centroids; c_idx++) {
