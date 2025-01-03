@@ -9,23 +9,23 @@ using namespace sycl;
 namespace kernels::v2 {
 
 class assign_points_to_clusters {
-  const point_t *points;
-  const point_t *centroids;
-  const size_t   num_centroids;
+  point_t const *points;
+  point_t const *centroids;
+  size_t const   num_centroids;
   size_t        *associations;
 
 public:
-  assign_points_to_clusters(const point_t *centroids, const size_t num_centroids,
-                            const point_t *points, size_t *associations)
+  assign_points_to_clusters(point_t const *centroids, size_t const num_centroids,
+                            point_t const *points, size_t *associations)
       : points(points), centroids(centroids), num_centroids(num_centroids),
         associations(associations) {}
 
-  void operator()(const size_t p_idx) const {
+  void operator()(size_t const p_idx) const {
     auto   min_val = std::numeric_limits<double>::max(); // TODO: change to float after profiling
     size_t min_idx = 0;
 
     for (size_t c_idx = 0; c_idx < num_centroids; c_idx++) {
-      const auto dist = squared_distance(points[p_idx], centroids[c_idx]);
+      auto const dist = squared_distance(points[p_idx], centroids[c_idx]);
 
       if (dist < min_val) {
         min_val = dist;
@@ -39,50 +39,46 @@ public:
 
 class partial_reduction {
 
-  const size_t   num_centroids;
-  const size_t   num_points;
-  const point_t *points;
-  const size_t  *associations;
+  size_t const   num_centroids;
+  size_t const   num_points;
+  point_t const *points;
+  size_t const  *associations;
 
   double *partial_sums_x;
   double *partial_sums_y;
   size_t *partial_counts;
 
 public:
-  partial_reduction(const size_t num_centroids, const point_t *points, const size_t num_points,
-                    const size_t *associations, double *partial_sums_x, double *partial_sums_y,
+  partial_reduction(size_t const num_centroids, point_t const *points, size_t const num_points,
+                    size_t const *associations, double *partial_sums_x, double *partial_sums_y,
                     size_t *partial_counts)
       : num_centroids(num_centroids), num_points(num_points), points(points),
         associations(associations), partial_sums_x(partial_sums_x), partial_sums_y(partial_sums_y),
         partial_counts(partial_counts) {}
 
-  void operator()(const nd_item<> &item) const {
-    const auto p_idx = item.get_global_id(0); // Point index
+  void operator()(nd_item<> const &item) const {
+    auto const p_idx = item.get_global_id(0); // Point index
 
     if (p_idx >= num_points) {
       return; // Out-of-bounds guard
     }
 
-    const auto wg_idx   = item.get_group(0);              // Workgroup index
-    const auto k_idx    = associations[p_idx];            // Cluster index
-    const auto sums_idx = wg_idx * num_centroids + k_idx; // Index in partial sums
+    size_t const wg_idx   = item.get_group(0);              // Workgroup index
+    size_t const k_idx    = associations[p_idx];            // Cluster index
+    size_t const sums_idx = wg_idx * num_centroids + k_idx; // Index in partial sums
 
-    const auto custom_atomic_ref = []<typename T>(T &ptr) {
-      constexpr auto mem_order = memory_order::relaxed;
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ <= 350
-      constexpr auto mem_scope = memory_scope::device; // work_group is not supported for SM_35
-#else
-      constexpr auto mem_scope = memory_scope::work_group;
-#endif
-      constexpr auto mem_space = access::address_space::global_space;
+    constexpr auto mem_order = memory_order::relaxed;
+    // constexpr auto mem_scope = memory_scope::device; // work_group is not supported for SM_35
+    constexpr auto mem_scope = memory_scope::work_group;
+    constexpr auto mem_space = access::address_space::global_space;
 
-      return atomic_ref<T, mem_order, mem_scope, mem_space>{ptr};
-    };
+    using double_atomic_ref = atomic_ref<double, mem_order, mem_scope, mem_space>;
+    using size_t_atomic_ref = atomic_ref<size_t, mem_order, mem_scope, mem_space>;
 
     // Use atomic operations to update partial results
-    const auto atom_x = custom_atomic_ref(partial_sums_x[sums_idx]);
-    const auto atom_y = custom_atomic_ref(partial_sums_y[sums_idx]);
-    const auto atom_c = custom_atomic_ref(partial_counts[sums_idx]);
+    auto const atom_x = double_atomic_ref(partial_sums_x[sums_idx]);
+    auto const atom_y = double_atomic_ref(partial_sums_y[sums_idx]);
+    auto const atom_c = size_t_atomic_ref(partial_counts[sums_idx]);
 
     atom_x += static_cast<double>(points[p_idx].x);
     atom_y += static_cast<double>(points[p_idx].y);
@@ -92,25 +88,25 @@ public:
 
 class final_reduction {
   // input data
-  const size_t         num_work_groups;
-  const size_t         num_centroids;
-  const double *const  partial_sums_x;
-  const double *const  partial_sums_y;
-  const size_t *const  partial_counts;
-  const point_t *const centroids;
+  size_t const         num_work_groups;
+  size_t const         num_centroids;
+  double const *const  partial_sums_x;
+  double const *const  partial_sums_y;
+  size_t const *const  partial_counts;
+  point_t const *const centroids;
 
   // output data
   point_t *new_centroids;
 
 public:
-  final_reduction(const size_t num_work_groups, const double *partial_sums_x,
-                  const double *partial_sums_y, const size_t num_centroids,
-                  const size_t *partial_counts, const point_t *centroids, point_t *new_centroids)
+  final_reduction(size_t const num_work_groups, double const *partial_sums_x,
+                  double const *partial_sums_y, size_t const num_centroids,
+                  size_t const *partial_counts, point_t const *centroids, point_t *new_centroids)
       : num_work_groups(num_work_groups), num_centroids(num_centroids),
         partial_sums_x(partial_sums_x), partial_sums_y(partial_sums_y),
         partial_counts(partial_counts), centroids(centroids), new_centroids(new_centroids) {}
 
-  void operator()(const size_t k_idx) const {
+  void operator()(size_t const k_idx) const {
     double final_x     = 0;
     double final_y     = 0;
     size_t final_count = 0;
@@ -134,33 +130,33 @@ public:
 
     // Cast again to float
     new_centroids[k_idx] = point_t{
-        .x = static_cast<float>(final_x),
-        .y = static_cast<float>(final_y),
+        static_cast<float>(final_x),
+        static_cast<float>(final_y),
     };
   }
 };
 
 class check_convergence {
-  const size_t   num_centroids;
-  const double   tol;
-  const point_t *centroids;
-  const point_t *new_centroids;
+  size_t const   num_centroids;
+  double const   tol;
+  point_t const *centroids;
+  point_t const *new_centroids;
 
   bool *converged;
 
 public:
-  check_convergence(const point_t *centroids, const size_t num_centroids,
-                    const point_t *new_centroids, const double tol, bool *converged)
+  check_convergence(point_t const *centroids, size_t const num_centroids,
+                    point_t const *new_centroids, double const tol, bool *converged)
       : num_centroids(num_centroids), tol(tol), centroids(centroids), new_centroids(new_centroids),
         converged(converged) {}
   void operator()() const {
 
     // tolerance must be squared
-    const auto tol = this->tol * this->tol;
+    double const tol_sq = this->tol * this->tol;
 
     bool conv = true;
     for (size_t i = 0; i == 0 || i < num_centroids; i++) {
-      conv &= squared_distance(centroids[i], new_centroids[i]) < tol;
+      conv &= squared_distance(centroids[i], new_centroids[i]) < tol_sq;
 
       if (!conv) {
         break;
@@ -173,28 +169,28 @@ public:
 
 } // namespace kernels::v2
 
-kmeans_cluster_t kmeans_usm_v2::cluster(const size_t max_iter, const double tol) {
-  const auto num_points    = points.size();
-  const auto num_centroids = this->num_centroids;
+kmeans_cluster_t kmeans_usm_v2::cluster(size_t const max_iter, double const tol) {
+  auto const num_points    = points.size();
+  auto const num_centroids = this->num_centroids;
 
   // Points
-  const auto dev_points        = required_ptr(malloc_device<point_t>(points.size(), q));
+  auto const dev_points        = required_ptr(malloc_device<point_t>(points.size(), q));
   // Centroids
-  const auto dev_centroids     = required_ptr(malloc_device<point_t>(num_centroids, q));
+  auto const dev_centroids     = required_ptr(malloc_device<point_t>(num_centroids, q));
   // Updated centroids after each iteration
-  const auto dev_new_centroids = required_ptr(malloc_device<point_t>(num_centroids, q));
+  auto const dev_new_centroids = required_ptr(malloc_device<point_t>(num_centroids, q));
   // Association of each point to a cluster
-  const auto dev_associations  = required_ptr(malloc_device<size_t>(points.size(), q));
-  const auto converged         = required_ptr(malloc_host<bool>(1, q)); // Convergence flag
+  auto const dev_associations  = required_ptr(malloc_device<size_t>(points.size(), q));
+  auto const converged         = required_ptr(malloc_host<bool>(1, q)); // Convergence flag
 
-  const size_t work_group_size = q.get_device().get_info<info::device::max_work_group_size>();
-  const size_t num_work_groups = (num_points + work_group_size - 1) / work_group_size;
+  size_t const work_group_size = q.get_device().get_info<info::device::max_work_group_size>();
+  size_t const num_work_groups = (num_points + work_group_size - 1) / work_group_size;
 
-  const auto partial_sums_x =
+  auto const partial_sums_x =
       required_ptr(malloc_device<double>(num_work_groups * num_centroids, q));
-  const auto partial_sums_y =
+  auto const partial_sums_y =
       required_ptr(malloc_device<double>(num_work_groups * num_centroids, q));
-  const auto partial_counts =
+  auto const partial_counts =
       required_ptr(malloc_device<size_t>(num_work_groups * num_centroids, q));
 
   // Define the global and local ranges for the partial reduction kernel
@@ -203,7 +199,7 @@ kmeans_cluster_t kmeans_usm_v2::cluster(const size_t max_iter, const double tol)
     // the global range must be a multiple of the work group size
     partial_reduction_global_range = range{(num_points / work_group_size + 1) * work_group_size};
   }
-  const auto partial_reduction_execution_range =
+  auto const partial_reduction_execution_range =
       nd_range{partial_reduction_global_range, range(work_group_size)};
 
   // copy points to device memory
@@ -290,8 +286,5 @@ kmeans_cluster_t kmeans_usm_v2::cluster(const size_t max_iter, const double tol)
   sycl::free(partial_sums_y, q);
   sycl::free(partial_counts, q);
 
-  return kmeans_cluster_t{
-      .centroids = host_centroids,
-      .clusters  = host_clusters,
-  };
+  return kmeans_cluster_t{host_centroids, host_clusters};
 }
