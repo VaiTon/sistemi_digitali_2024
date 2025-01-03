@@ -86,51 +86,44 @@ public:
 
   void operator()(nd_item<> const &item) const {
 
-    size_t const group_idx  = item.get_group(0);       // Workgroup index
     size_t const group_size = item.get_local_range(0); // Workgroup size
-    size_t const item_idx   = item.get_local_id(0);    // Local index
+    size_t const local_id   = item.get_local_id(0);    // Local index
+    size_t const global_id  = item.get_global_id(0);   // Global index
 
     // to which centroid does this workgroup belong? (matrix row)
-    auto const cluster_idx         = group_idx / groups_per_centroid_;
-    auto const threads_per_cluster = groups_per_centroid_ * group_size;
-
+    auto const cluster_idx = global_id / num_points;
     // which point does this thread process? (matrix column)
-    auto const p_idx            = group_idx % threads_per_cluster + item_idx;
+    auto const point_idx   = global_id % num_points;
+
     // associations is a matrix of size num_centroids x num_points
     // every row represents a centroid
     // every column represents a point
     // row major order is used
-    auto const global_assoc_idx = cluster_idx * num_points + p_idx; // Global association index
+    auto const associations_mtx_idx = cluster_idx * num_points + point_idx;
+    auto const associations_point   = associations[associations_mtx_idx];
 
-    if (p_idx >= num_points) {
-      local_sums_x[item_idx] = 0.0;
-      local_sums_y[item_idx] = 0.0;
-      local_counts[item_idx] = 0;
-    } else {
-      // copy every point to local memory
-      auto const assoc       = associations[global_assoc_idx];
-      local_sums_x[item_idx] = assoc.x;
-      local_sums_y[item_idx] = assoc.y;
-      local_counts[item_idx] = assoc.is_zero() ? 0 : 1;
-    }
-    item.barrier(access::fence_space::local_space);
+    // copy every point to local memory
+    local_sums_x[local_id] = associations_point.x;
+    local_sums_y[local_id] = associations_point.y;
+    local_counts[local_id] = associations_point.is_zero() ? 0 : 1;
+
+    item.barrier(access::fence_space::local_space); // wait for all threads to finish copying
 
     // reduce via stride halving
     for (size_t stride = group_size / 2; stride > 0; stride /= 2) {
+      if (local_id < stride) {
+        auto const other_idx = local_id + stride;
 
-      if (item_idx < stride) {
-        auto const other_idx = item_idx + stride;
-
-        local_sums_x[item_idx] += local_sums_x[other_idx];
-        local_sums_y[item_idx] += local_sums_y[other_idx];
-        local_counts[item_idx] += local_counts[other_idx];
+        local_sums_x[local_id] += local_sums_x[other_idx];
+        local_sums_y[local_id] += local_sums_y[other_idx];
+        local_counts[local_id] += local_counts[other_idx];
       }
 
       item.barrier(access::fence_space::local_space);
     }
 
     // write the result to global memory
-    if (item_idx == 0) {
+    if (local_id == 0) {
       global_atomic_ref<float> const  global_sums_x_ref{global_centroids[cluster_idx].x};
       global_atomic_ref<float> const  global_sums_y_ref{global_centroids[cluster_idx].y};
       global_atomic_ref<size_t> const global_counts_ref{global_counts[cluster_idx]};
