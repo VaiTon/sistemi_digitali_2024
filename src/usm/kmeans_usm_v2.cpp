@@ -21,11 +21,11 @@ public:
         associations(associations) {}
 
   void operator()(size_t const p_idx) const {
-    auto   min_val = std::numeric_limits<double>::max(); // TODO: change to float after profiling
+    float  min_val = std::numeric_limits<float>::max();
     size_t min_idx = 0;
 
     for (size_t c_idx = 0; c_idx < num_centroids; c_idx++) {
-      auto const dist = squared_distance(points[p_idx], centroids[c_idx]);
+      float const dist = squared_distance(points[p_idx], centroids[c_idx]);
 
       if (dist < min_val) {
         min_val = dist;

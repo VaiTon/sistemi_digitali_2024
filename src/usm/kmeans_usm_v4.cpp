@@ -28,11 +28,11 @@ public:
   void operator()(size_t const p_idx) const {
     auto const point = points[p_idx];
 
-    auto   min_val = std::numeric_limits<double>::max();
+    float  min_val = std::numeric_limits<float>::max();
     size_t min_idx = 0;
 
     for (size_t c_idx = 0; c_idx < num_centroids; c_idx++) {
-      auto const dist = squared_distance(point, centroids[c_idx]);
+      float const dist = squared_distance(point, centroids[c_idx]);
 
       if (dist < min_val) {
         min_val = dist;
