@@ -38,12 +38,13 @@ void save_results(std::string const &path, kmeans_cluster_t const &res) {
   file << "]" << std::endl;
 }
 
-template <typename T>
-auto test(std::string const &name, std::string const &filename, T &km, size_t max_iter, double tol)
-    -> decltype(km.cluster(max_iter, tol), void()) {
+template <typename T, std::enable_if_t<std::is_base_of_v<kmeans, T>> * = nullptr>
+void test(std::string const &name, std::string const &filename, T &km, size_t max_iter,
+          double tol) {
 
   logger::info() << "Running backend " << name << "\n";
   auto res = km.cluster(max_iter, tol);
+  logger::info() << "Iterations: " << km.get_iters() << "\n";
 
   logger::info() << "Saving results to " << filename << "\n";
   save_results(filename, res);
@@ -107,7 +108,7 @@ int main(int const argc, char **argv) {
 
   {
     auto kmeans = kmeans_usm_v1{q, k, data};
-        test("USM v1", output_dir + "/usm_v1.json", kmeans, max_iter, tol);
+    test("USM v1", output_dir + "/usm_v1.json", kmeans, max_iter, tol);
   }
   {
     auto kmeans = kmeans_usm_v2{q, k, data};

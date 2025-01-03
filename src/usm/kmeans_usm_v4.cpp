@@ -106,20 +106,17 @@ public:
       local_sums_x[item_idx] = 0.0;
       local_sums_y[item_idx] = 0.0;
       local_counts[item_idx] = 0;
-      // grazie ChatGPT
-      // return;
     } else {
-
       // copy every point to local memory
       auto const assoc       = associations[global_assoc_idx];
       local_sums_x[item_idx] = assoc.x;
       local_sums_y[item_idx] = assoc.y;
       local_counts[item_idx] = assoc.is_zero() ? 0 : 1;
     }
+    item.barrier(access::fence_space::local_space);
 
     // reduce via stride halving
     for (size_t stride = group_size / 2; stride > 0; stride /= 2) {
-      item.barrier(access::fence_space::local_space);
 
       if (item_idx < stride) {
         auto const other_idx = item_idx + stride;
@@ -128,6 +125,8 @@ public:
         local_sums_y[item_idx] += local_sums_y[other_idx];
         local_counts[item_idx] += local_counts[other_idx];
       }
+
+      item.barrier(access::fence_space::local_space);
     }
 
     // write the result to global memory
@@ -168,7 +167,9 @@ public:
       return;
     }
 
-    assert(!new_centroids[k_idx].is_zero());
+    if (new_centroids[k_idx].is_zero()) {
+      return;
+    }
 
     // normalize the centroid
     new_centroids[k_idx].x /= static_cast<float>(new_cluster_size);
@@ -193,11 +194,11 @@ public:
   void operator()() const {
 
     // tolerance must be squared
-    auto const tol = this->tol * this->tol;
+    auto const tol_sq = this->tol * this->tol;
 
     bool conv = true;
     for (size_t i = 0; i == 0 || i < num_centroids; i++) {
-      conv &= squared_distance(centroids[i], new_centroids[i]) < tol;
+      conv &= squared_distance(centroids[i], new_centroids[i]) < tol_sq;
 
       if (!conv) {
         break;
@@ -224,9 +225,11 @@ kmeans_cluster_t kmeans_usm_v4::cluster(size_t const max_iter, double const tol)
   // row major order is used
   // the matrix should be sparse
 
-  auto const assoc_matrix_size = num_centroids * points.size();
-  auto const dev_assoc_matrix  = required_ptr(malloc_device<point_t>(assoc_matrix_size, q));
-  auto const dev_assoc_array   = required_ptr(malloc_device<size_t>(assoc_matrix_size, q));
+  auto const assoc_matrix_size = num_centroids * num_points;
+  auto const assoc_array_size  = num_points;
+
+  auto const dev_assoc_matrix = required_ptr(malloc_device<point_t>(assoc_matrix_size, q));
+  auto const dev_assoc_array  = required_ptr(malloc_device<size_t>(assoc_array_size, q));
 
   auto const dev_new_centroids     = required_ptr(malloc_device<point_t>(num_centroids, q));
   auto const dev_new_clusters_size = required_ptr(malloc_device<size_t>(num_centroids, q));
@@ -250,7 +253,9 @@ kmeans_cluster_t kmeans_usm_v4::cluster(size_t const max_iter, double const tol)
     // Step 2: calculate new centroids by averaging the points in each cluster
     // q.fill(dev_assoc_matrix, point_t{0.0f, 0.0f}, assoc_matrix_size).wait();
     // xPres: .fill è lentissimo
-    q.memset(dev_assoc_array, 0, assoc_matrix_size * sizeof(point_t)).wait();
+    q.memset(dev_assoc_matrix, 0, assoc_matrix_size * sizeof(point_t));
+    q.memset(dev_assoc_array, 0, assoc_array_size * sizeof(point_t));
+    q.wait();
 
     q.submit([&](handler &h) {
        kernels::v4::assign_points_to_clusters const kernel{
@@ -268,26 +273,38 @@ kmeans_cluster_t kmeans_usm_v4::cluster(size_t const max_iter, double const tol)
 
     // Step 2.1: Parallel reduction over points
     q.submit([&](handler &cgh) {
-       // every workgroup will reduce up to 1024 points
-       size_t const local_size = q.get_device().get_info<info::device::max_work_group_size>() / 8;
-       size_t const groups_per_centroid = (num_points + local_size - 1) / local_size;
+      constexpr size_t warp_size  = 32; // NVIDIA warp size
+      size_t           local_size = q.get_device().get_info<info::device::max_work_group_size>();
+      local_size                  = std::min(local_size, num_points); // limit to num_points at most
 
-       local_accessor<double, 1> const local_sums_x{local_size, cgh};
-       local_accessor<double, 1> const local_sums_y{local_size, cgh};
-       local_accessor<size_t, 1> const local_counts{local_size, cgh};
+      // local_size must be a divisor of num_points and a multiple of 32 (warp size)
+      while (num_points % local_size != 0 || local_size % warp_size != 0) {
+        local_size -= 1;
+        if (local_size == 0) {
+          throw std::runtime_error("Cannot find a valid local size");
+        }
+      }
 
-       kernels::v4::reduce_to_centroids const kernel{
-           groups_per_centroid,   num_points,   dev_assoc_matrix, dev_new_centroids,
-           dev_new_clusters_size, local_sums_x, local_sums_y,     local_counts,
-       };
+      size_t const groups_per_centroid = num_points / local_size;
+      size_t const total_groups        = groups_per_centroid * num_centroids;
 
-       auto const total_groups = num_centroids * groups_per_centroid;
+      auto const exec_range = nd_range{range{(total_groups * local_size)}, range{local_size}};
 
-       auto const global_size = total_groups * local_size;
-       auto const exec_range  = nd_range{range{global_size}, range{local_size}};
+      printf("num_points: %lu, local_size: %lu, groups_per_centroid: %lu, num_centroids: %lu, "
+             "total_groups: %lu\n",
+             num_points, local_size, groups_per_centroid, num_centroids, total_groups);
 
-       cgh.parallel_for(exec_range, kernel);
-     }).wait();
+      local_accessor<double, 1> const local_sums_x{local_size, cgh};
+      local_accessor<double, 1> const local_sums_y{local_size, cgh};
+      local_accessor<size_t, 1> const local_counts{local_size, cgh};
+
+      kernels::v4::reduce_to_centroids const kernel{
+          groups_per_centroid,   num_points,   dev_assoc_matrix, dev_new_centroids,
+          dev_new_clusters_size, local_sums_x, local_sums_y,     local_counts,
+      };
+
+      cgh.parallel_for(exec_range, kernel);
+    });
 
     q.wait();
 

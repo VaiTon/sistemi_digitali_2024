@@ -53,98 +53,6 @@ public:
   }
 };
 
-class reduce_to_centroids {
-  size_t const         groups_per_centroid_;
-  point_t const *const associations;
-  size_t const         num_points;
-
-  local_accessor<double, 1> const local_sums_x;
-  local_accessor<double, 1> const local_sums_y;
-  local_accessor<size_t, 1> const local_counts;
-
-  // output
-  point_t *const global_centroids;
-  size_t *const  global_counts;
-
-  static constexpr auto global_mem_order = memory_order::relaxed;
-  static constexpr auto global_mem_scope = memory_scope::device;
-  static constexpr auto global_mem_space = access::address_space::global_space;
-
-  template <typename T>
-  using global_atomic_ref = atomic_ref<T, global_mem_order, global_mem_scope, global_mem_space>;
-
-public:
-  reduce_to_centroids(size_t const groups_per_centroid, size_t const num_points,
-                      point_t const *const associations, point_t *const global_centroids,
-                      size_t *const global_counts, local_accessor<double, 1> const &local_sums_x,
-                      local_accessor<double, 1> const &local_sums_y,
-                      local_accessor<size_t, 1> const &local_counts)
-      : groups_per_centroid_(groups_per_centroid), associations(associations),
-        num_points(num_points), local_sums_x(local_sums_x), local_sums_y(local_sums_y),
-        local_counts(local_counts), global_centroids(global_centroids),
-        global_counts(global_counts) {}
-
-  void operator()(nd_item<> const &item) const {
-
-    size_t const group_idx  = item.get_group(0);       // Workgroup index
-    size_t const group_size = item.get_local_range(0); // Workgroup size
-    size_t const item_idx   = item.get_local_id(0);    // Local index
-
-    // to which centroid does this workgroup belong? (matrix row)
-    auto const cluster_idx         = group_idx / groups_per_centroid_;
-    auto const threads_per_cluster = groups_per_centroid_ * group_size;
-
-    // which point does this thread process? (matrix column)
-    auto const p_idx            = group_idx % threads_per_cluster + item_idx;
-    // associations is a matrix of size num_centroids x num_points
-    // every row represents a centroid
-    // every column represents a point
-    // row major order is used
-    auto const global_assoc_idx = cluster_idx * num_points + p_idx; // Global association index
-
-    if (p_idx >= num_points) {
-      local_sums_x[item_idx] = 0.0;
-      local_sums_y[item_idx] = 0.0;
-      local_counts[item_idx] = 0;
-    } else {
-      // grazie ChatGPT
-      // copy every point to local memory
-      auto const assoc       = associations[global_assoc_idx];
-      local_sums_x[item_idx] = assoc.x;
-      local_sums_y[item_idx] = assoc.y;
-      local_counts[item_idx] = assoc.is_zero() ? 0 : 1;
-    }
-
-    // reduce via stride halving
-    for (size_t stride = group_size / 2; stride > 0; stride /= 2) {
-      item.barrier(access::fence_space::local_space);
-
-      if (item_idx < stride) {
-        auto const other_idx = item_idx + stride;
-
-        local_sums_x[item_idx] += local_sums_x[other_idx];
-        local_sums_y[item_idx] += local_sums_y[other_idx];
-        local_counts[item_idx] += local_counts[other_idx];
-      }
-    }
-
-    // write the result to global memory
-    if (item_idx == 0) {
-      global_atomic_ref<float> const  global_sums_x_ref{global_centroids[cluster_idx].x};
-      global_atomic_ref<float> const  global_sums_y_ref{global_centroids[cluster_idx].y};
-      global_atomic_ref<size_t> const global_counts_ref{global_counts[cluster_idx]};
-
-      auto const x = local_sums_x[0];
-      auto const y = local_sums_y[0];
-      auto const c = local_counts[0];
-
-      global_sums_x_ref += static_cast<float>(x);
-      global_sums_y_ref += static_cast<float>(y);
-      global_counts_ref += c;
-    }
-  }
-};
-
 class final_reduction {
   size_t const *const  new_clusters_size;
   point_t const *const centroids;
@@ -193,11 +101,11 @@ public:
   void operator()() const {
 
     // tolerance must be squared
-    auto const tol = this->tol * this->tol;
+    auto const tol_sq = this->tol * this->tol;
 
     bool conv = true;
     for (size_t i = 0; i == 0 || i < num_centroids; i++) {
-      conv &= squared_distance(centroids[i], new_centroids[i]) < tol;
+      conv &= squared_distance(centroids[i], new_centroids[i]) < tol_sq;
 
       if (!conv) {
         break;
@@ -270,7 +178,7 @@ kmeans_cluster_t kmeans_usm_v3::cluster(size_t const max_iter, double const tol)
     q.memset(dev_new_centroids, 0, num_centroids * sizeof(point_t));
     q.wait();
 
-    // Step 2.1: [ALTERNATIVE] For each centroid, submit a SYCL reduction kernel
+    // Step 2.1: For each centroid, submit a SYCL reduction kernel
     for (size_t c_idx = 0; c_idx < num_centroids; c_idx++) {
       q.submit([&](handler &cgh) {
         size_t const assoc_cluster_offset = c_idx * num_points;
