@@ -54,7 +54,6 @@ public:
 };
 
 class reduce_to_centroids {
-  size_t const         groups_per_centroid_;
   point_t const *const associations;
   size_t const         num_points;
 
@@ -74,21 +73,20 @@ class reduce_to_centroids {
   using global_atomic_ref = atomic_ref<T, global_mem_order, global_mem_scope, global_mem_space>;
 
 public:
-  reduce_to_centroids(size_t const groups_per_centroid, size_t const num_points,
-                      point_t const *const associations, point_t *const global_centroids,
-                      size_t *const global_counts, local_accessor<double, 1> const &local_sums_x,
+  reduce_to_centroids(size_t const num_points, point_t const *const associations,
+                      point_t *const global_centroids, size_t *const global_counts,
+                      local_accessor<double, 1> const &local_sums_x,
                       local_accessor<double, 1> const &local_sums_y,
                       local_accessor<size_t, 1> const &local_counts)
-      : groups_per_centroid_(groups_per_centroid), associations(associations),
-        num_points(num_points), local_sums_x(local_sums_x), local_sums_y(local_sums_y),
-        local_counts(local_counts), global_centroids(global_centroids),
+      : associations(associations), num_points(num_points), local_sums_x(local_sums_x),
+        local_sums_y(local_sums_y), local_counts(local_counts), global_centroids(global_centroids),
         global_counts(global_counts) {}
 
   void operator()(nd_item<> const &item) const {
 
-    size_t const group_size = item.get_local_range(0); // Workgroup size
-    size_t const local_id   = item.get_local_id(0);    // Local index
-    size_t const global_id  = item.get_global_id(0);   // Global index
+    size_t const local_range = item.get_local_range(0); // Workgroup size
+    size_t const local_id    = item.get_local_id(0);    // Local index
+    size_t const global_id   = item.get_global_id(0);   // Global index
 
     // to which centroid does this workgroup belong? (matrix row)
     auto const cluster_idx = global_id / num_points;
@@ -110,7 +108,8 @@ public:
     item.barrier(access::fence_space::local_space); // wait for all threads to finish copying
 
     // reduce via stride halving
-    for (size_t stride = group_size / 2; stride > 0; stride /= 2) {
+    // #pragma unroll 2
+    for (size_t stride = local_range / 2; stride > 0; stride /= 2) {
       if (local_id < stride) {
         auto const other_idx = local_id + stride;
 
@@ -283,17 +282,13 @@ kmeans_cluster_t kmeans_usm_v4::cluster(size_t const max_iter, double const tol)
 
       auto const exec_range = nd_range{range{(total_groups * local_size)}, range{local_size}};
 
-      printf("num_points: %lu, local_size: %lu, groups_per_centroid: %lu, num_centroids: %lu, "
-             "total_groups: %lu\n",
-             num_points, local_size, groups_per_centroid, num_centroids, total_groups);
-
       local_accessor<double, 1> const local_sums_x{local_size, cgh};
       local_accessor<double, 1> const local_sums_y{local_size, cgh};
       local_accessor<size_t, 1> const local_counts{local_size, cgh};
 
       kernels::v4::reduce_to_centroids const kernel{
-          groups_per_centroid,   num_points,   dev_assoc_matrix, dev_new_centroids,
-          dev_new_clusters_size, local_sums_x, local_sums_y,     local_counts,
+          num_points,   dev_assoc_matrix, dev_new_centroids, dev_new_clusters_size,
+          local_sums_x, local_sums_y,     local_counts,
       };
 
       cgh.parallel_for(exec_range, kernel);
