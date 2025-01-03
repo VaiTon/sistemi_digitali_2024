@@ -79,9 +79,8 @@ int main(int const argc, char **argv) {
 #endif
 
   if (argc < 3) {
-    logger::raw() << "Usage: " << argv[0]
-                  << " <data.csv> <k> [type]\n"
-                     "  type: ";
+    logger::raw() << "Usage: " << argv[0] << " <data.csv> <k> [type] [max_iter] [tolerance]\n"
+                  << "  type: ";
     for (auto const &t : types) {
       logger::raw() << t << " ";
     }
@@ -90,10 +89,19 @@ int main(int const argc, char **argv) {
   }
 
   auto run_type = std::string{};
-  if (argc == 4) {
+  if (argc >= 4) {
     run_type = argv[3];
     std::transform(run_type.begin(), run_type.end(), run_type.begin(),
                    [](unsigned char const c) { return std::tolower(c); });
+  }
+
+  double tol      = 1e-4;
+  size_t max_iter = 1000;
+  if (argc >= 5) {
+    max_iter = static_cast<size_t>(std::stoi(argv[4]));
+  }
+  if (argc >= 6) {
+    tol = std::stod(argv[5]);
   }
 
   if (!run_type.empty() && std::find(types.begin(), types.end(), run_type) == types.end()) {
@@ -105,9 +113,6 @@ int main(int const argc, char **argv) {
     logger::raw() << std::endl;
     return EXIT_FAILURE;
   }
-
-  constexpr double tol      = 1e-4;
-  constexpr size_t max_iter = 1000;
 
   auto const input_filename = std::string{argv[1]};
   auto const k              = static_cast<size_t>(std::stoi(argv[2]));
@@ -162,28 +167,28 @@ int main(int const argc, char **argv) {
 #endif
 
   auto test_sycl = [&](sycl::queue const &q, size_t const compute_units) {
+    /*
+    #ifndef USE_CUDA // Issue with CUDA and SYCL buffers
+        {
+          auto kmeans = kmeans_buf{q, k, data};
+          time_and_print("BUF", kmeans, max_iter, tol, data_size, ref_time, compute_units);
+        }
+    #endif
 
-#ifndef USE_CUDA // Issue with CUDA and SYCL buffers
-    {
-      auto kmeans = kmeans_buf{q, k, data};
-      time_and_print("BUF", kmeans, max_iter, tol, data_size, ref_time, compute_units);
-    }
-#endif
+        {
+          auto kmeans = kmeans_usm_v1{q, k, data};
+          time_and_print("USMv1", kmeans, max_iter, tol, data_size, ref_time, compute_units);
+        }
 
-    {
-      auto kmeans = kmeans_usm_v1{q, k, data};
-      time_and_print("USMv1", kmeans, max_iter, tol, data_size, ref_time, compute_units);
-    }
+        {
+          auto kmeans = kmeans_usm_v2{q, k, data};
+          time_and_print("USMv2", kmeans, max_iter, tol, data_size, ref_time, compute_units);
+        }
 
-    {
-      auto kmeans = kmeans_usm_v2{q, k, data};
-      time_and_print("USMv2", kmeans, max_iter, tol, data_size, ref_time, compute_units);
-    }
-
-    {
-      auto kmeans = kmeans_usm_v3{q, k, data};
-      time_and_print("USMv3", kmeans, max_iter, tol, data_size, ref_time, compute_units);
-    }
+        {
+          auto kmeans = kmeans_usm_v3{q, k, data};
+          time_and_print("USMv3", kmeans, max_iter, tol, data_size, ref_time, compute_units);
+        }*/
     {
       auto kmeans = kmeans_usm_v4{q, k, data};
       time_and_print("USMv4", kmeans, max_iter, tol, data_size, ref_time, compute_units);
