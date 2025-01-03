@@ -265,8 +265,8 @@ kmeans_cluster_t kmeans_usm_v4::cluster(size_t const max_iter, double const tol)
 
     // Step 2.1: Parallel reduction over points
     q.submit([&](handler &cgh) {
-      constexpr size_t warp_size  = 32; // NVIDIA warp size
-      size_t           local_size = q.get_device().get_info<info::device::max_work_group_size>();
+      constexpr size_t warp_size  = 32;                               // NVIDIA warp size
+      size_t           local_size = 256;                              // default local size
       local_size                  = std::min(local_size, num_points); // limit to num_points at most
 
       // local_size must be a divisor of num_points and a multiple of 32 (warp size)
