@@ -224,9 +224,11 @@ kmeans_cluster_t kmeans_usm_v3::cluster(size_t const max_iter, double const tol)
   // row major order is used
   // the matrix should be sparse
 
-  auto const assoc_matrix_size = num_centroids * points.size();
-  auto const dev_assoc_matrix  = required_ptr(malloc_device<point_t>(assoc_matrix_size, q));
-  auto const dev_assoc_array   = required_ptr(malloc_device<size_t>(assoc_matrix_size, q));
+  auto const assoc_matrix_size = num_centroids * num_points;
+  auto const assoc_array_size  = num_points;
+
+  auto const dev_assoc_matrix = required_ptr(malloc_device<point_t>(assoc_matrix_size, q));
+  auto const dev_assoc_array  = required_ptr(malloc_device<size_t>(assoc_array_size, q));
 
   auto const dev_new_centroids     = required_ptr(malloc_device<point_t>(num_centroids, q));
   auto const dev_new_clusters_size = required_ptr(malloc_device<size_t>(num_centroids, q));
@@ -250,7 +252,9 @@ kmeans_cluster_t kmeans_usm_v3::cluster(size_t const max_iter, double const tol)
     // Step 2: calculate new centroids by averaging the points in each cluster
     // q.fill(dev_assoc_matrix, point_t{0.0f, 0.0f}, assoc_matrix_size).wait();
     // xPres: .fill è lentissimo
-    q.memset(dev_assoc_array, 0, assoc_matrix_size * sizeof(point_t)).wait();
+    q.memset(dev_assoc_matrix, 0, assoc_matrix_size * sizeof(point_t));
+    q.memset(dev_assoc_array, 0, assoc_array_size * sizeof(point_t));
+    q.wait();
 
     q.submit([&](handler &h) {
        kernels::v3::assign_points_to_clusters const kernel{
