@@ -24,6 +24,11 @@ if (KMEANS_CUDA)
     enable_language(CUDA)
     message(STATUS "Using CUDA")
 endif ()
+if (KMEANS_TBB)
+    add_compile_definitions(USE_TBB)
+    find_package(TBB REQUIRED)
+    message(STATUS "Found TBB: ${TBB_VERSION}")
+endif ()
 
 
 if (KMEANS_ONEAPI)
@@ -39,12 +44,11 @@ else ()
         add_compile_options(-fopenmp)
     endif ()
 
-    message(STATUS "Using AdaptiveCpp")
-    message(STATUS "AdaptiveCpp targets: ${ACPP_TARGETS}")
+    message(STATUS "Using AdaptiveCpp with targets: ${ACPP_TARGETS}")
     set(ENV{ACPP_TARGETS} ${ACPP_TARGETS})
 endif ()
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Wsign-compare")
 
 # Ninja colorize output
 if (CMAKE_GENERATOR STREQUAL "Ninja")

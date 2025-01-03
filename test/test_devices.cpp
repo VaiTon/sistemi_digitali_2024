@@ -17,9 +17,11 @@
 #include "ocv/kmeans_ocv.hpp"
 #include "omp/kmeans_omp.hpp"
 #include "simd/kmeans_simd.hpp"
-#include "tbb/kmeans_tbb.hpp"
 #include "usm/kmeans_usm.hpp"
 
+#ifdef USE_TBB
+#include "tbb/kmeans_tbb.hpp"
+#endif
 #ifdef USE_CUDA
 #include "cuda/kmeans_cuda.hpp"
 #endif
@@ -68,8 +70,13 @@ auto time_and_print(std::string const &name, T &km, size_t max_iter, double tol,
 
 int main(int const argc, char **argv) {
 
-  auto const types =
-      std::vector<std::string>{"cpu", "omp", "tbb", "simd", "ocv", "cuda", "sycl", "sycl-inorder"};
+  auto types = std::vector<std::string>{"cpu", "omp", "simd", "ocv", "sycl", "sycl-inorder"};
+#ifdef USE_TBB
+  types.push_back("tbb");
+#endif
+#ifdef USE_CUDA
+  types.push_back("cuda");
+#endif
 
   if (argc < 3) {
     logger::raw() << "Usage: " << argv[0]
@@ -127,26 +134,15 @@ int main(int const argc, char **argv) {
     time_and_print("CPU (v2)", kmeans, max_iter, tol, data_size, ref_time);
   }
   if (run_type.empty() || run_type == "omp") {
-    auto const max_threads = omp_get_max_threads();
-    omp_set_num_threads(1);
-    {
-      auto kmeans = kmeans_omp{k, data};
-      time_and_print("OpenMP 1 Th", kmeans, max_iter, tol, data_size, ref_time,
-                     omp_get_max_threads());
-    }
-
-    omp_set_num_threads(max_threads);
-    {
-      auto kmeans = kmeans_omp{k, data};
-      time_and_print("OpenMP", kmeans, max_iter, tol, data_size, ref_time, omp_get_max_threads());
-    }
+    auto kmeans = kmeans_omp{k, data};
+    time_and_print("OpenMP", kmeans, max_iter, tol, data_size, ref_time, omp_get_max_threads());
   }
+#ifdef USE_TBB
   if (run_type.empty() || run_type == "tbb") {
-    {
-      auto kmeans = kmeans_tbb{k, data};
-      time_and_print("TBB", kmeans, max_iter, tol, data_size, ref_time);
-    }
+    auto kmeans = kmeans_tbb{k, data};
+    time_and_print("TBB", kmeans, max_iter, tol, data_size, ref_time);
   }
+#endif
   if (run_type.empty() || run_type == "simd") {
     {
       auto kmeans = kmeans_simd{k, data};
@@ -158,18 +154,15 @@ int main(int const argc, char **argv) {
     }
   }
 
-  if (run_type.empty() || run_type == "cuda") {
 #ifdef USE_CUDA
-    {
-      auto kmeans = kmeans_cuda{k, data};
-      time_and_print("CUDA", kmeans, max_iter, tol, ref_time);
-    }
-#else
-    logger::error() << "Compiled without CUDA support" << std::endl;
-#endif
+  if (run_type.empty() || run_type == "cuda") {
+    auto kmeans = kmeans_cuda{k, data};
+    time_and_print("CUDA", kmeans, max_iter, tol, ref_time);
   }
+#endif
 
   auto test_sycl = [&](sycl::queue const &q, size_t const compute_units) {
+
 #ifndef USE_CUDA // Issue with CUDA and SYCL buffers
     {
       auto kmeans = kmeans_buf{q, k, data};
